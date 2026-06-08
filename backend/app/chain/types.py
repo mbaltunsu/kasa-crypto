@@ -44,6 +44,16 @@ class TxReceipt:
     block_hash: str
 
 
+@dataclass(frozen=True)
+class SignedTx:
+    """A signed-but-not-yet-broadcast transaction. `raw` is the serialized payload to broadcast;
+    `tx_hash` is its deterministic hash. Persisting `raw` lets a crashed broadcast be re-sent
+    idempotently (same hash, same nonce) instead of re-signed at a fresh nonce (finding #3)."""
+
+    raw: str
+    tx_hash: str
+
+
 class WatcherClient(Protocol):
     """Read side: everything the deposit watcher needs to index a chain."""
 
@@ -76,11 +86,42 @@ class SenderClient(Protocol):
 
     chain_id: int
 
+    # Head + block-hash reads: the withdrawal processor needs them to gate settlement on
+    # confirmation depth and re-validate a receipt's block is still canonical before settling (#7).
+    def block_number(self) -> int: ...
+
+    def block_hash(self, block_number: int) -> str | None: ...
+
     def pending_nonce(self, address: str) -> int: ...
 
     def latest_nonce(self, address: str) -> int: ...
 
     def suggested_gas_price(self) -> int: ...
+
+    # Sign (pure, no network) is split from broadcast so the withdrawer can durably persist the
+    # signed tx + nonce before broadcasting, making a re-broadcast after a crash idempotent (#3).
+    def sign_native(
+        self,
+        *,
+        private_key: str,
+        to_address: str,
+        value: int,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx: ...
+
+    def sign_erc20(
+        self,
+        *,
+        private_key: str,
+        token_address: str,
+        to_address: str,
+        value: int,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx: ...
+
+    def broadcast_raw(self, raw: str) -> str: ...
 
     def send_native(
         self,

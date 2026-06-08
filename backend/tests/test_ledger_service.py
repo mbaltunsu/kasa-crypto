@@ -107,6 +107,22 @@ async def test_ledger_sum_zero_invariant_and_idempotency(session: AsyncSession) 
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_account_tolerates_duplicate_system_accounts(session: AsyncSession) -> None:
+    """#10: nullable user_id means Postgres allows duplicate `system` accounts. get_or_create must
+    not crash with MultipleResultsFound when duplicates already exist — it returns an existing row."""
+    from app.models.tables import LedgerAccount
+
+    asset = await _asset(session)
+    dup1 = LedgerAccount(owner_type="system", user_id=None, asset_id=asset.id, name="reserve")
+    dup2 = LedgerAccount(owner_type="system", user_id=None, asset_id=asset.id, name="reserve")
+    session.add_all([dup1, dup2])
+    await session.flush()
+
+    account = await ledger.get_or_create_account(session, asset=asset, name="reserve", owner_type="system")
+    assert account.id in {dup1.id, dup2.id}
+
+
+@pytest.mark.asyncio
 async def test_ledger_available_and_pending_balance(session: AsyncSession) -> None:
     asset = await _asset(session)
     user = await _user(session, "alice@example.com")

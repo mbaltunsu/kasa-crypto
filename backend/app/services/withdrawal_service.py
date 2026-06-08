@@ -7,11 +7,13 @@ from kasa_shared.registry import explorer_tx_url
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.addresses import InvalidAddressError, to_checksum_address_strict
 from app.core.enums import ErrorCode, LedgerEntryType, WithdrawalStatus
 from app.models.tables import User, WithdrawalRequest
 from app.schemas.withdrawal import WithdrawalCreateResponse, WithdrawalResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
+from app.services.idempotency import scoped_idempotency_key
 from app.services.wallet_service import get_asset
 
 
@@ -27,7 +29,17 @@ async def create_withdrawal(
     if amount <= 0:
         raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive")
 
-    existing_tx = await ledger.find_transaction_by_idempotency_key(session, idempotency_key)
+    # Validate + canonicalize the destination at request time (before reserving funds) so a typo'd
+    # checksum or the zero address can never be signed and broadcast (finding #14).
+    try:
+        to_address = to_checksum_address_strict(to_address)
+    except InvalidAddressError as exc:
+        raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, str(exc))
+
+    scoped_key = scoped_idempotency_key(
+        domain="withdraw", user_id=user.id, client_key=idempotency_key,
+    )
+    existing_tx = await ledger.find_transaction_by_idempotency_key(session, scoped_key)
     if existing_tx is not None and existing_tx.ref_type == "withdrawal_request":
         existing = await get_withdrawal_for_user(
             session,
@@ -37,6 +49,9 @@ async def create_withdrawal(
         return WithdrawalCreateResponse(id=existing.id, status=WithdrawalStatus(existing.status))
 
     asset = await get_asset(session, asset_id)
+    # Lock the user's wallet account before the balance check so two concurrent debits cannot both
+    # pass and overspend (finding #2). Lock + read + post stay in this one transaction.
+    await ledger.lock_user_asset(session, user=user, asset=asset)
     available = await ledger.available_balance(session, user=user, asset=asset)
     if available < amount:
         raise_api_error(HTTPStatus.BAD_REQUEST, ErrorCode.INSUFFICIENT_FUNDS, "Insufficient funds")
@@ -62,7 +77,7 @@ async def create_withdrawal(
     await ledger.post(
         session,
         transaction_type=LedgerEntryType.WITHDRAWAL,
-        idempotency_key=idempotency_key,
+        idempotency_key=scoped_key,
         ref_type="withdrawal_request",
         ref_id=str(withdrawal.id),
         legs=[

@@ -97,12 +97,15 @@ async def _insert_if_new(session: AsyncSession, deposit: OnchainDeposit) -> bool
         await session.flush()
         return True
     if existing.status == DepositStatus.ORPHANED.value:
-        # The same tx was re-mined after a reorg: resurrect the row at its new canonical block so
-        # it gets re-credited (the new block_hash makes the credit a fresh ledger key — see below).
+        # The same tx was re-mined after a reorg: resurrect the row at its new canonical block so it
+        # gets re-credited. Bump credit_revision so the credit/reversal idempotency keys are fresh
+        # even if the block re-converges to the SAME hash (block_hash is not unique across a
+        # reorg-reconverge — keying credits on it silently swallowed the re-credit; see #6).
         existing.block_number = deposit.block_number
         existing.block_hash = deposit.block_hash
         existing.amount = deposit.amount
         existing.status = DepositStatus.SEEN.value
+        existing.credit_revision = existing.credit_revision + 1
         await session.flush()
         return True
     return False
@@ -188,7 +191,7 @@ async def _credit_deposit(session: AsyncSession, deposit: OnchainDeposit, user_i
     await ledger.post(
         session,
         transaction_type=LedgerEntryType.DEPOSIT,
-        idempotency_key=f"deposit-credit:{deposit.id}:{deposit.block_hash}",
+        idempotency_key=f"deposit-credit:{deposit.id}:{deposit.credit_revision}",
         ref_type=_DEPOSIT_REF_TYPE,
         ref_id=str(deposit.id),
         legs=[
@@ -209,7 +212,7 @@ async def _reverse_credit(session: AsyncSession, deposit: OnchainDeposit, user_i
     await ledger.post(
         session,
         transaction_type=LedgerEntryType.REVERSAL,
-        idempotency_key=f"deposit-reverse:{deposit.id}:{deposit.block_hash}",
+        idempotency_key=f"deposit-reverse:{deposit.id}:{deposit.credit_revision}",
         ref_type=_DEPOSIT_REF_TYPE,
         ref_id=str(deposit.id),
         legs=[
@@ -314,6 +317,7 @@ async def run_scan(
     *,
     confirmations: int,
     reorg_depth: int,
+    finality_depth: int = 0,
     start_block: int = 0,
 ) -> ScanReport:
     chain_id = client.chain_id
@@ -337,9 +341,12 @@ async def run_scan(
 
     recorded = await record_deposits(session, client, from_block=from_block, to_block=head)
     credited = await confirm_and_credit(session, client, confirmations=confirmations)
-    # The reorg window must reach at least as deep as the confirmation depth so a deposit that
-    # reorgs right after being credited is still caught; reorg_depth is the extra safety margin.
-    reorg = await handle_reorgs(session, client, reorg_depth=confirmations + reorg_depth)
+    # The reorg window reaches confirmations (so a deposit that reorgs right after crediting is
+    # caught) plus a finality margin, so a credited deposit stays reversible for a true finality
+    # depth past the credit point — not merely `reorg_depth` blocks (finding #13). `finality_depth`
+    # defaults to 0, falling back to reorg_depth, so existing call sites are unaffected.
+    margin = max(reorg_depth, finality_depth)
+    reorg = await handle_reorgs(session, client, reorg_depth=confirmations + margin)
     if reorg.lowest_block is not None:
         # Rewind so the replacement block(s) — which may carry new canonical deposits below the
         # cursor — get re-scanned next pass (record_deposits is idempotent on surviving txs).

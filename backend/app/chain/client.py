@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from app.chain.types import Erc20Transfer, NativeTransfer, TxReceipt
+from app.chain.types import Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -196,6 +196,34 @@ class ChainClient:
         msg = f"all RPC providers failed for {label} on chain {self.chain_id}: {last_exc}"
         raise ChainRpcError(msg) from last_exc
 
+    def _find_across_providers(self, label: str, fetch: Callable[[Any], T | None]) -> T | None:
+        """Return the first non-None ``fetch(web3)`` across ALL providers; None only once every
+        *reachable* provider has returned None. Raises ChainRpcError if no provider was reachable.
+
+        Unlike ``_with_failover`` (which returns the first provider's value, even a normal
+        None/False from a caught ``TransactionNotFound``), this never concludes "not found" from a
+        single lagging/unreachable node — required for tx/receipt lookups so a real payout is never
+        wrongly treated as absent and reversed (finding #4).
+        """
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries):
+            reachable = False
+            for web3 in self._providers():
+                try:
+                    result = fetch(web3)
+                except Exception as exc:  # noqa: BLE001 - resilience: try the next provider
+                    last_exc = exc
+                    continue
+                reachable = True
+                if result is not None:
+                    return result
+            if reachable:
+                return None
+            if attempt + 1 < self._max_retries:
+                time.sleep(min(0.5 * 2**attempt, 5.0))
+        msg = f"all RPC providers failed for {label} on chain {self.chain_id}: {last_exc}"
+        raise ChainRpcError(msg) from last_exc
+
     def _get_logs(self, log_filter: dict[str, Any]) -> list[Any]:
         return self._with_failover("get_logs", lambda w3: w3.eth.get_logs(log_filter))
 
@@ -211,9 +239,23 @@ class ChainClient:
         return int(self._with_failover("block_number", lambda w3: w3.eth.block_number))
 
     def block_hash(self, block_number: int) -> str | None:
-        try:
-            block = self._get_block(block_number)
-        except ChainRpcError:
+        """Canonical hash of a block, or None if the block does not exist yet on any reachable node.
+
+        Distinguishes "block not found" (return None → not yet mined, retry later) from a genuine
+        RPC outage (raise ChainRpcError → surfaced/alerted) so a sustained outage cannot masquerade
+        as a steady stream of not-yet-final blocks and silently stall crediting (finding #18).
+        """
+
+        def fetch(web3: Any) -> Any:
+            from web3.exceptions import BlockNotFound
+
+            try:
+                return web3.eth.get_block(block_number)
+            except BlockNotFound:
+                return None
+
+        block = self._find_across_providers("block_hash", fetch)
+        if block is None:
             return None
         return _to_hex(block["hash"])
 
@@ -258,6 +300,14 @@ class ChainClient:
         from_block: int,
         to_block: int,
     ) -> list[NativeTransfer]:
+        """Scan blocks for native value transfers whose top-level ``tx.to`` is a deposit address.
+
+        LIMITATION (finding #11): native value delivered via a contract internal call (a router,
+        multisend, smart-contract wallet, or some exchange withdrawals) has ``tx.to`` set to the
+        contract, not the deposit address, and is invisible here — capturing it requires trace APIs
+        (``trace_block``/``debug_traceTransaction``) or periodic balance reconciliation. Deposits
+        must therefore be direct EOA sends until trace-based detection is added.
+        """
         if not to_addresses or from_block > to_block:
             return []
         wanted = {address.lower() for address in to_addresses}
@@ -314,33 +364,91 @@ class ChainClient:
         return int(self._with_failover("gas_price", lambda w3: w3.eth.gas_price))
 
     def _tx_known(self, tx_hash: str) -> bool:
-        """True if any provider already has this tx (pending or mined)."""
+        """True if ANY provider already has this tx (pending or mined). Polls every provider and
+        returns False only once all reachable providers agree it is absent (finding #4)."""
 
-        def fetch(web3: Any) -> bool:
+        def fetch(web3: Any) -> bool | None:
             from web3.exceptions import TransactionNotFound
 
             try:
                 web3.eth.get_transaction(tx_hash)
             except TransactionNotFound:
-                return False
+                return None  # absent on THIS provider — keep checking the others
             return True
 
         try:
-            return self._with_failover("get_transaction", fetch)
+            return bool(self._find_across_providers("get_transaction", fetch))
         except ChainRpcError:
             return False
 
-    def _broadcast(self, signed: Any) -> str:
-        """Broadcast a pre-signed tx, returning its hash.
+    @staticmethod
+    def _signed(account_signed: Any) -> SignedTx:
+        return SignedTx(
+            raw=_to_hex(account_signed.raw_transaction), tx_hash=_to_hex(account_signed.hash),
+        )
 
-        Critically, a send is reported as successful whenever the tx is (or becomes) known to a node
-        — including when send_raw_transaction raises 'already known' / 'nonce too low' after the tx
-        was accepted, or the HTTP response was lost. We only raise ChainRpcError once the tx is
-        verified absent from every provider, so a withdrawal is never falsely reversed while its
-        payout actually confirms on-chain.
+    def sign_native(
+        self,
+        *,
+        private_key: str,
+        to_address: str,
+        value: int,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        """Sign a native-value transfer. Pure: no RPC, fully deterministic from its inputs."""
+        from eth_account import Account
+
+        account = Account.from_key(private_key)
+        tx = {
+            "to": _checksum(to_address),
+            "value": value,
+            "nonce": nonce,
+            "gas": NATIVE_TRANSFER_GAS,
+            "gasPrice": gas_price,
+            "chainId": self.chain_id,
+        }
+        return self._signed(account.sign_transaction(tx))
+
+    def sign_erc20(
+        self,
+        *,
+        private_key: str,
+        token_address: str,
+        to_address: str,
+        value: int,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        """Sign an ERC-20 transfer (build+sign is pure encoding — all fields supplied, no RPC)."""
+        from eth_account import Account
+
+        account = Account.from_key(private_key)
+        web3 = self._providers()[0]
+        contract = web3.eth.contract(address=_checksum(token_address), abi=ERC20_MIN_ABI)
+        tx = contract.functions.transfer(_checksum(to_address), value).build_transaction(
+            {
+                "from": account.address,
+                "nonce": nonce,
+                "gas": ERC20_TRANSFER_GAS,
+                "gasPrice": gas_price,
+                "chainId": self.chain_id,
+            },
+        )
+        return self._signed(account.sign_transaction(tx))
+
+    def broadcast_raw(self, raw: str) -> str:
+        """Broadcast a previously-signed raw tx, returning its hash.
+
+        A send is reported successful whenever the tx is (or becomes) known to a node — including
+        when send_raw_transaction raises 'already known' / 'nonce too low' after the tx was
+        accepted, or the HTTP response was lost. ChainRpcError is raised only once the tx is
+        verified absent from every provider. Re-broadcasting an already-mined raw tx is a safe
+        no-op — which is what makes the withdrawer outbox crash-idempotent (#3).
         """
-        expected = _to_hex(signed.hash)
-        raw = signed.raw_transaction
+        from eth_utils import keccak
+
+        expected = _to_hex(keccak(hexstr=raw))
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             for web3 in self._providers():
@@ -366,18 +474,14 @@ class ChainClient:
         nonce: int,
         gas_price: int,
     ) -> str:
-        from eth_account import Account
-
-        account = Account.from_key(private_key)
-        tx = {
-            "to": _checksum(to_address),
-            "value": value,
-            "nonce": nonce,
-            "gas": NATIVE_TRANSFER_GAS,
-            "gasPrice": gas_price,
-            "chainId": self.chain_id,
-        }
-        return self._broadcast(account.sign_transaction(tx))
+        signed = self.sign_native(
+            private_key=private_key,
+            to_address=to_address,
+            value=value,
+            nonce=nonce,
+            gas_price=gas_price,
+        )
+        return self.broadcast_raw(signed.raw)
 
     def send_erc20(
         self,
@@ -389,23 +493,15 @@ class ChainClient:
         nonce: int,
         gas_price: int,
     ) -> str:
-        from eth_account import Account
-
-        account = Account.from_key(private_key)
-        # Build + sign once (all tx fields are supplied, so this is pure encoding, no RPC), then
-        # broadcast the fixed signed payload so retries/failover re-send the identical tx.
-        web3 = self._providers()[0]
-        contract = web3.eth.contract(address=_checksum(token_address), abi=ERC20_MIN_ABI)
-        tx = contract.functions.transfer(_checksum(to_address), value).build_transaction(
-            {
-                "from": account.address,
-                "nonce": nonce,
-                "gas": ERC20_TRANSFER_GAS,
-                "gasPrice": gas_price,
-                "chainId": self.chain_id,
-            },
+        signed = self.sign_erc20(
+            private_key=private_key,
+            token_address=token_address,
+            to_address=to_address,
+            value=value,
+            nonce=nonce,
+            gas_price=gas_price,
         )
-        return self._broadcast(account.sign_transaction(tx))
+        return self.broadcast_raw(signed.raw)
 
     def get_receipt(self, tx_hash: str) -> TxReceipt | None:
         def fetch(web3: Any) -> Any:
@@ -416,7 +512,9 @@ class ChainClient:
             except TransactionNotFound:
                 return None
 
-        receipt = self._with_failover("receipt", fetch)
+        # Poll ALL providers: a receipt missing on a lagging node may exist on another. Conclude
+        # "no receipt" only once every reachable provider agrees (finding #4).
+        receipt = self._find_across_providers("receipt", fetch)
         if receipt is None:
             return None
         return TxReceipt(

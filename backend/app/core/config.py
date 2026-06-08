@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # ── Chain workers (watcher + withdrawal processor) ─────────────────────────────
     faucet_private_key: str | None = Field(default=None, alias="FAUCET_PRIVATE_KEY")
     reorg_depth: int = Field(default=5, alias="REORG_DEPTH")
+    # Keep a credited deposit reversible for this many blocks past its credit point (a chain's
+    # practical finality depth), not merely `reorg_depth` blocks (finding #13).
+    reorg_finality_depth: int = Field(default=64, alias="REORG_FINALITY_DEPTH")
     block_chunk_size: int = Field(default=2_000, alias="BLOCK_CHUNK_SIZE")
     watcher_poll_seconds: float = Field(default=10.0, alias="WATCHER_POLL_SECONDS")
     withdrawer_poll_seconds: float = Field(default=10.0, alias="WITHDRAWER_POLL_SECONDS")

@@ -394,7 +394,61 @@ async def test_reorg_recovery_orphan_then_recredit_same_tx(session: AsyncSession
     assert deposit.status == DepositStatus.SEEN.value
     assert deposit.block_number == 102
 
-    # 4. and it can be credited again (block_hash is part of the credit idempotency key)
+    # 4. and it can be credited again (the resurrected row's bumped credit_revision makes a fresh key)
+    assert await watcher.confirm_and_credit(session, client, confirmations=5) == 1
+    assert await ledger.available_balance(session, user=alice, asset=token) == ONE_ETH
+
+
+@pytest.mark.asyncio
+async def test_reorg_recovery_recredits_when_block_reconverges_to_same_hash(
+    session: AsyncSession,
+) -> None:
+    """#6: a reorg that re-converges to the ORIGINAL block hash must still re-credit the user.
+
+    Keying the credit on block_hash made the second credit collide with the first idempotency key,
+    so `ledger.post` returned the original transaction and posted nothing — the deposit was marked
+    CREDITED with no ledger entry, permanently losing the user's funds.
+    """
+    _native, token, alice = await _world(session)
+    tx_hash = "0x" + "11" * 32
+    aa = "0x" + "aa" * 32
+    client = FakeChainClient(
+        chain_id=CHAIN_ID,
+        head=120,
+        block_hashes={100: aa},
+        erc20_transfers=[
+            Erc20Transfer(
+                token_address=TOKEN,
+                from_address=SENDER,
+                to_address=ALICE_ADDR,
+                value=ONE_ETH,
+                tx_hash=tx_hash,
+                log_index=3,
+                block_number=100,
+                block_hash=aa,
+            ),
+        ],
+    )
+
+    # 1. record + credit
+    await watcher.record_deposits(session, client, from_block=1, to_block=120)
+    assert await watcher.confirm_and_credit(session, client, confirmations=5) == 1
+    assert await ledger.available_balance(session, user=alice, asset=token) == ONE_ETH
+
+    # 2. a transient reorg flips block 100's hash → the credited deposit is reversed
+    client.head = 121
+    client.block_hashes[100] = "0x" + "ff" * 32
+    assert (await watcher.handle_reorgs(session, client, reorg_depth=50)).orphaned == 1
+    assert await ledger.available_balance(session, user=alice, asset=token) == 0
+
+    # 3. the chain RE-CONVERGES: block 100 becomes canonical again at its ORIGINAL hash "aa"
+    client.head = 130
+    client.block_hashes[100] = aa
+    assert await watcher.record_deposits(session, client, from_block=1, to_block=130) == 1
+    deposit = (await session.execute(select(OnchainDeposit))).scalar_one()
+    assert deposit.status == DepositStatus.SEEN.value
+
+    # 4. it MUST be credited again, even though the block hash equals the original credit's
     assert await watcher.confirm_and_credit(session, client, confirmations=5) == 1
     assert await ledger.available_balance(session, user=alice, asset=token) == ONE_ETH
 
@@ -424,6 +478,43 @@ async def test_run_scan_reverses_credited_deposit_on_later_reorg(session: AsyncS
     client.head = 106
     client.block_hashes[100] = "0x" + "ff" * 32
     second = await watcher.run_scan(session, client, confirmations=5, reorg_depth=2)
+    assert second.orphaned == 1
+    assert await ledger.available_balance(session, user=alice, asset=token) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_scan_reverses_credit_within_finality_window_past_reorg_depth(
+    session: AsyncSession,
+) -> None:
+    """#13: a credited deposit must stay reversible for a full finality depth past the credit point,
+    not just `reorg_depth` blocks. A deep/late reorg beyond reorg_depth but within finality must
+    still reverse the credit (otherwise the credit becomes an un-backed liability)."""
+    _native, token, alice = await _world(session)
+    transfer = Erc20Transfer(
+        token_address=TOKEN,
+        from_address=SENDER,
+        to_address=ALICE_ADDR,
+        value=ONE_ETH,
+        tx_hash="0x" + "11" * 32,
+        log_index=2,
+        block_number=100,
+        block_hash="0x" + "aa" * 32,
+    )
+    client = FakeChainClient(
+        chain_id=CHAIN_ID, head=105, block_hashes={100: "0x" + "aa" * 32}, erc20_transfers=[transfer],
+    )
+    first = await watcher.run_scan(
+        session, client, confirmations=5, reorg_depth=2, finality_depth=64,
+    )
+    assert first.credited == 1
+    assert await ledger.available_balance(session, user=alice, asset=token) == ONE_ETH
+
+    # The reorg lands 10 blocks past the credit — beyond reorg_depth(2) but within finality_depth(64).
+    client.head = 115
+    client.block_hashes[100] = "0x" + "ff" * 32
+    second = await watcher.run_scan(
+        session, client, confirmations=5, reorg_depth=2, finality_depth=64,
+    )
     assert second.orphaned == 1
     assert await ledger.available_balance(session, user=alice, asset=token) == 0
 

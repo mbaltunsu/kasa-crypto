@@ -40,6 +40,30 @@ class LedgerInvariantError(ValueError):
     pass
 
 
+async def _select_account(
+    session: AsyncSession,
+    *,
+    owner_type: str,
+    user_id: UUID | None,
+    asset_id: UUID,
+    name: str,
+) -> LedgerAccount | None:
+    # `.first()` (not scalar_one_or_none): `system` accounts have a NULL user_id, which Postgres
+    # treats as distinct in the unique constraint, so duplicates are possible — never crash on them
+    # (finding #10). A partial unique index (migration 0004) prevents new duplicates on Postgres.
+    statement: Select[tuple[LedgerAccount]] = (
+        select(LedgerAccount)
+        .where(
+            LedgerAccount.owner_type == owner_type,
+            LedgerAccount.user_id == user_id,
+            LedgerAccount.asset_id == asset_id,
+            LedgerAccount.name == name,
+        )
+        .limit(1)
+    )
+    return (await session.execute(statement)).scalars().first()
+
+
 async def get_or_create_account(
     session: AsyncSession,
     *,
@@ -49,24 +73,26 @@ async def get_or_create_account(
     user: User | None = None,
 ) -> LedgerAccount:
     user_id = user.id if user is not None else None
-    statement: Select[tuple[LedgerAccount]] = select(LedgerAccount).where(
-        LedgerAccount.owner_type == owner_type,
-        LedgerAccount.user_id == user_id,
-        LedgerAccount.asset_id == asset.id,
-        LedgerAccount.name == name,
+    account = await _select_account(
+        session, owner_type=owner_type, user_id=user_id, asset_id=asset.id, name=name,
     )
-    account = (await session.execute(statement)).scalar_one_or_none()
     if account is not None:
         return account
 
-    account = LedgerAccount(
-        owner_type=owner_type,
-        user_id=user_id,
-        asset_id=asset.id,
-        name=name,
-    )
-    session.add(account)
-    await session.flush()
+    account = LedgerAccount(owner_type=owner_type, user_id=user_id, asset_id=asset.id, name=name)
+    try:
+        # Insert inside a SAVEPOINT so a concurrent create that wins the race only rolls back THIS
+        # insert (not the caller's other pending work), then fall back to the existing row.
+        async with session.begin_nested():
+            session.add(account)
+            await session.flush()
+    except IntegrityError:
+        existing = await _select_account(
+            session, owner_type=owner_type, user_id=user_id, asset_id=asset.id, name=name,
+        )
+        if existing is None:
+            raise
+        return existing
     return account
 
 
@@ -83,6 +109,29 @@ async def get_user_wallet_account(
         owner_type="user",
         user=user,
     )
+
+
+def _supports_row_locks(session: AsyncSession) -> bool:
+    try:
+        return session.get_bind().dialect.name == "postgresql"
+    except Exception:  # noqa: BLE001 - dialect probe is best-effort; default to no row locking
+        return False
+
+
+async def lock_user_asset(session: AsyncSession, *, user: User, asset: Asset) -> LedgerAccount:
+    """Serialize concurrent debits for one (user, asset) before a check-then-debit.
+
+    Acquires a row lock on the user's wallet ledger account so two requests can't both read the same
+    available balance and both post a debit (overspend). Postgres uses `SELECT ... FOR UPDATE`; on
+    SQLite the clause is skipped (writers are already serialized, so the race cannot occur there).
+    Callers MUST take this lock before reading `available_balance` and keep both in one transaction.
+    """
+    account = await get_user_wallet_account(session, user=user, asset=asset)
+    if _supports_row_locks(session):
+        await session.execute(
+            select(LedgerAccount.id).where(LedgerAccount.id == account.id).with_for_update(),
+        )
+    return account
 
 
 async def find_transaction_by_idempotency_key(
@@ -115,6 +164,23 @@ def _validate_legs(legs: Sequence[LedgerLeg]) -> None:
         raise LedgerInvariantError(msg)
 
 
+def _assert_replay_compatible(
+    existing: LedgerTransaction,
+    *,
+    ref_type: str,
+    ref_id: str,
+) -> None:
+    """An idempotency key may only ever be replayed for the *same* operation. A key found under a
+    different (ref_type, ref_id) means the caller reused it for an unrelated request; returning the
+    foreign transaction would silently skip the intended legs (custody loss), so refuse it."""
+    if existing.ref_type != ref_type or existing.ref_id != ref_id:
+        msg = (
+            f"idempotency key already used for a different operation "
+            f"({existing.ref_type}:{existing.ref_id}, not {ref_type}:{ref_id})"
+        )
+        raise LedgerInvariantError(msg)
+
+
 async def post(
     session: AsyncSession,
     *,
@@ -126,6 +192,7 @@ async def post(
 ) -> LedgerTransaction:
     existing = await find_transaction_by_idempotency_key(session, idempotency_key)
     if existing is not None:
+        _assert_replay_compatible(existing, ref_type=ref_type, ref_id=ref_id)
         return existing
 
     _validate_legs(legs)
@@ -154,6 +221,7 @@ async def post(
         await session.rollback()
         replay = await find_transaction_by_idempotency_key(session, idempotency_key)
         if replay is not None:
+            _assert_replay_compatible(replay, ref_type=ref_type, ref_id=ref_id)
             return replay
         raise
 

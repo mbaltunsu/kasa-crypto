@@ -178,6 +178,12 @@ class OnchainDeposit(Base):
     amount: Mapped[int] = mapped_column(AmountNumeric, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Bumped each time an ORPHANED row is resurrected after a reorg, so the credit/reversal ledger
+    # idempotency keys stay unique across re-mines — even when the block re-converges to the same
+    # hash (block_hash alone is not unique across a reorg-reconverge; see worker.watcher / #6).
+    credit_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -203,6 +209,9 @@ class WithdrawalRequest(Base):
     amount: Mapped[int] = mapped_column(AmountNumeric, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Persisted signed raw tx (set at SIGNING, before broadcast). Re-broadcasting this exact payload
+    # after a crash is idempotent — same nonce, same hash — so a payout can never be sent twice (#3).
+    signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
     nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -70,6 +70,7 @@ async def _watcher_loop(ctx: WorkerContext, client: WatcherClient, scan_from: in
                     client,
                     confirmations=ctx.settings.deposit_confirmations,
                     reorg_depth=ctx.settings.reorg_depth,
+                    finality_depth=ctx.settings.reorg_finality_depth,
                     start_block=scan_from,
                 )
                 await session.commit()
@@ -89,8 +90,11 @@ async def _watcher_loop(ctx: WorkerContext, client: WatcherClient, scan_from: in
 async def _withdrawer_loop(ctx: WorkerContext, client: SenderClient) -> None:
     while not ctx.stop.is_set():
         try:
+            # Three separately-committed phases. Signing persists the nonce + raw tx BEFORE any
+            # broadcast, so a crash between phases re-broadcasts the identical signed tx instead of
+            # re-signing at a fresh nonce — no double-pay, no stranded nonce (finding #3).
             async with ctx.session_factory() as session:
-                broadcast = await withdrawer.broadcast_pending(
+                await withdrawer.sign_pending(
                     session,
                     client,
                     hot_wallet_key=ctx.hot_wallet_key,
@@ -98,8 +102,14 @@ async def _withdrawer_loop(ctx: WorkerContext, client: SenderClient) -> None:
                 )
                 await session.commit()
             async with ctx.session_factory() as session:
+                broadcast = await withdrawer.broadcast_signed(session, client)
+                await session.commit()
+            async with ctx.session_factory() as session:
                 settled = await withdrawer.confirm_broadcast(
-                    session, client, hot_wallet_address=ctx.hot_wallet_address,
+                    session,
+                    client,
+                    confirmations=ctx.settings.deposit_confirmations,
+                    hot_wallet_address=ctx.hot_wallet_address,
                 )
                 await session.commit()
             if broadcast or settled:

@@ -6,13 +6,14 @@ worker logic can be exercised end-to-end against canned chain data with zero net
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.client import ChainRpcError
-from app.chain.types import Erc20Transfer, NativeTransfer, TxReceipt
+from app.chain.types import Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
 from app.core.enums import UserRole
 from app.models.tables import Asset, DepositAddress, User
 
@@ -44,6 +45,7 @@ class FakeChainClient:
     erc20_balances: dict[tuple[str, str], int] = field(default_factory=dict)
     send_error: str | None = None
     sent: list[SentTx] = field(default_factory=list)
+    _signed: dict[str, SentTx] = field(default_factory=dict)
 
     # ── WatcherClient ──────────────────────────────────────────────────────────
     def block_number(self) -> int:
@@ -102,6 +104,36 @@ class FakeChainClient:
     def suggested_gas_price(self) -> int:
         return self.gas_price
 
+    def sign_native(
+        self,
+        *,
+        private_key: str,
+        to_address: str,
+        value: int,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        return self._sign("native", to_address=to_address, value=value, nonce=nonce, token=None)
+
+    def sign_erc20(
+        self,
+        *,
+        private_key: str,
+        token_address: str,
+        to_address: str,
+        value: int,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        return self._sign("erc20", to_address=to_address, value=value, nonce=nonce, token=token_address)
+
+    def broadcast_raw(self, raw: str) -> str:
+        if self.send_error is not None:
+            raise ChainRpcError(self.send_error)
+        sent = self._signed[raw]
+        self.sent.append(sent)
+        return sent.tx_hash
+
     def send_native(
         self,
         *,
@@ -111,7 +143,11 @@ class FakeChainClient:
         nonce: int,
         gas_price: int,
     ) -> str:
-        return self._record("native", to_address=to_address, value=value, nonce=nonce, token=None)
+        return self.broadcast_raw(
+            self.sign_native(
+                private_key=private_key, to_address=to_address, value=value, nonce=nonce, gas_price=gas_price,
+            ).raw,
+        )
 
     def send_erc20(
         self,
@@ -123,18 +159,21 @@ class FakeChainClient:
         nonce: int,
         gas_price: int,
     ) -> str:
-        return self._record(
-            "erc20",
-            to_address=to_address,
-            value=value,
-            nonce=nonce,
-            token=token_address,
+        return self.broadcast_raw(
+            self.sign_erc20(
+                private_key=private_key,
+                token_address=token_address,
+                to_address=to_address,
+                value=value,
+                nonce=nonce,
+                gas_price=gas_price,
+            ).raw,
         )
 
     def get_receipt(self, tx_hash: str) -> TxReceipt | None:
         return self.receipts.get(tx_hash)
 
-    def _record(
+    def _sign(
         self,
         kind: str,
         *,
@@ -142,21 +181,16 @@ class FakeChainClient:
         value: int,
         nonce: int,
         token: str | None,
-    ) -> str:
-        if self.send_error is not None:
-            raise ChainRpcError(self.send_error)
-        tx_hash = "0x" + f"{len(self.sent) + 1:064x}"
-        self.sent.append(
-            SentTx(
-                kind=kind,
-                to_address=to_address,
-                value=value,
-                nonce=nonce,
-                token_address=token,
-                tx_hash=tx_hash,
-            ),
+    ) -> SignedTx:
+        # Deterministic raw payload so re-signing identical inputs yields the same tx (idempotent
+        # re-broadcast), mirroring the real client. The raw string also carries the structured fields
+        # so broadcast_raw can record a faithful SentTx.
+        raw = f"0xsigned:{kind}:{to_address}:{value}:{nonce}:{token}"
+        tx_hash = "0x" + hashlib.sha256(raw.encode()).hexdigest()
+        self._signed[raw] = SentTx(
+            kind=kind, to_address=to_address, value=value, nonce=nonce, token_address=token, tx_hash=tx_hash,
         )
-        return tx_hash
+        return SignedTx(raw=raw, tx_hash=tx_hash)
 
 
 # ─────────────────────────── DB seed helpers ───────────────────────────

@@ -52,6 +52,28 @@ async def test_reserves_fall_back_to_liabilities_without_factory(session: AsyncS
 
 
 @pytest.mark.asyncio
+async def test_reserves_liabilities_sum_only_positive_balances(session: AsyncSession) -> None:
+    """#17: liabilities must sum each user wallet's POSITIVE balance. A negative/anomalous account
+    must not net against others and understate the custodian's true liability."""
+    asset = await seed_asset(session, chain_id=CHAIN_ID, asset_type="native", symbol="ETH", decimals=18)
+    alice = await seed_user(session, email="alice@example.com", hd_index=1)
+    bob = await seed_user(session, email="bob@example.com", hd_index=2)
+    await _credit_wallet(session, alice, asset, 100)
+
+    # Force bob's wallet negative (an anomaly that must be surfaced, not allowed to mask liability).
+    sink = await ledger.get_or_create_account(session, asset=asset, name="anomaly_sink", owner_type="system")
+    bob_wallet = await ledger.get_user_wallet_account(session, user=bob, asset=asset)
+    await ledger.post(
+        session, transaction_type=LedgerEntryType.ADJUSTMENT, idempotency_key="neg-bob",
+        ref_type="test", ref_id="neg",
+        legs=[ledger.LedgerLeg(bob_wallet, asset, -50), ledger.LedgerLeg(sink, asset, 50)],
+    )
+
+    report = await admin_service.reserves(session)
+    assert _row(report, asset.id).liabilities == 100  # not max(0, 100 - 50) = 50
+
+
+@pytest.mark.asyncio
 async def test_reserves_sum_onchain_native_balances(session: AsyncSession) -> None:
     asset = await seed_asset(session, chain_id=CHAIN_ID, asset_type="native", symbol="ETH", decimals=18)
     user = await seed_user(session, email="a@example.com", hd_index=1)

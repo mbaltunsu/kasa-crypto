@@ -4,7 +4,7 @@ import hashlib
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.client import ChainRpcError
@@ -29,16 +29,23 @@ if TYPE_CHECKING:
 
 
 async def _liabilities(session: AsyncSession, asset: Asset) -> int:
-    statement = (
-        select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+    # Sum each user wallet's balance, then keep only the POSITIVE ones (finding #17). Clamping the
+    # grand total instead would let a negative/anomalous account net against others and understate
+    # the true liability — negative balances are operational exceptions, not a discount on reserves.
+    per_account = (
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0).label("balance"))
         .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)
         .where(
             LedgerAccount.owner_type == "user",
             LedgerAccount.name == ledger.USER_WALLET_ACCOUNT,
             LedgerEntry.asset_id == asset.id,
         )
+        .group_by(LedgerEntry.account_id)
+        .subquery()
     )
-    return max(0, int((await session.execute(statement)).scalar_one()))
+    positive = case((per_account.c.balance > 0, per_account.c.balance), else_=0)
+    statement = select(func.coalesce(func.sum(positive), 0))
+    return int((await session.execute(statement)).scalar_one())
 
 
 def _sum_onchain(

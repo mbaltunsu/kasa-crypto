@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.client import ChainRpcError
@@ -24,7 +25,7 @@ from app.models.tables import Asset, HotWalletNonce, User, WithdrawalRequest
 from app.services import ledger
 
 if TYPE_CHECKING:
-    from app.chain.types import SenderClient
+    from app.chain.types import SenderClient, SignedTx
 
 logger = logging.getLogger("kasa.worker.withdrawer")
 
@@ -68,30 +69,54 @@ async def _claim_pending(
     return list((await session.execute(statement)).scalars())
 
 
+async def _select_nonce_row(session: AsyncSession, chain_id: int) -> HotWalletNonce | None:
+    statement: Select[tuple[HotWalletNonce]] = select(HotWalletNonce).where(
+        HotWalletNonce.chain_id == chain_id,
+    )
+    if _supports_skip_locked(session):
+        statement = statement.with_for_update()
+    return (await session.execute(statement)).scalar_one_or_none()
+
+
 async def _nonce_row(
     session: AsyncSession,
     client: SenderClient,
     hot_wallet_address: str,
 ) -> HotWalletNonce:
     chain_id = client.chain_id
-    statement: Select[tuple[HotWalletNonce]] = select(HotWalletNonce).where(
-        HotWalletNonce.chain_id == chain_id,
-    )
-    if _supports_skip_locked(session):
-        statement = statement.with_for_update()
-    row = (await session.execute(statement)).scalar_one_or_none()
+    row = await _select_nonce_row(session, chain_id)
+    chain_nonce = client.pending_nonce(hot_wallet_address)
     if row is None:
-        row = HotWalletNonce(
-            chain_id=chain_id,
-            address=hot_wallet_address,
-            next_nonce=client.pending_nonce(hot_wallet_address),
+        # Create inside a SAVEPOINT so a concurrent first-withdrawal pass that wins the race only
+        # rolls back THIS insert; then fall back to the winner's row. A bare flush would abort the
+        # whole pass on the chain_id PK violation (finding #9).
+        new_row = HotWalletNonce(
+            chain_id=chain_id, address=hot_wallet_address, next_nonce=chain_nonce,
         )
-        session.add(row)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(new_row)
+                await session.flush()
+            return new_row
+        except IntegrityError:
+            row = await _select_nonce_row(session, chain_id)
+            if row is None:
+                raise
+    if row.address != hot_wallet_address:
+        # Hot wallet rotated → the persisted counter belongs to the old key. Re-key the row and
+        # reset to the new wallet's on-chain nonce instead of inheriting the old value (finding #5).
+        row.address = hot_wallet_address
+        row.next_nonce = chain_nonce
+    else:
+        # Reconcile against the chain so an out-of-band tx (e.g. a faucet sharing the key) or a lost
+        # increment can't leave us broadcasting at a stale, already-mined nonce that no-ops and
+        # wedges every later withdrawal (finding #12).
+        row.next_nonce = max(row.next_nonce, chain_nonce)
+    await session.flush()
     return row
 
 
-def _send(
+def _sign(
     client: SenderClient,
     *,
     asset: Asset,
@@ -99,10 +124,10 @@ def _send(
     private_key: str,
     nonce: int,
     gas_price: int,
-) -> str:
+) -> SignedTx:
     amount = int(request.amount)
     if asset.type == "native":
-        return client.send_native(
+        return client.sign_native(
             private_key=private_key,
             to_address=request.to_address,
             value=amount,
@@ -110,7 +135,7 @@ def _send(
             gas_price=gas_price,
         )
     if asset.type == "erc20" and asset.contract_address is not None:
-        return client.send_erc20(
+        return client.sign_erc20(
             private_key=private_key,
             token_address=asset.contract_address,
             to_address=request.to_address,
@@ -165,6 +190,88 @@ async def _settle(session: AsyncSession, request: WithdrawalRequest) -> None:
     )
 
 
+async def sign_pending(
+    session: AsyncSession,
+    client: SenderClient,
+    *,
+    hot_wallet_key: str,
+    hot_wallet_address: str,
+    batch: int = _DEFAULT_BATCH,
+) -> int:
+    """Phase 1 (durable): claim pending requests, assign a gap-free nonce, SIGN, and persist the
+    signed raw tx + nonce + hash with status SIGNING. Nothing is broadcast here — once this commits,
+    the exact payout is fixed, so a later broadcast (even after a crash) re-sends the identical tx.
+    """
+    requests = await _claim_pending(session, client.chain_id, batch)
+    if not requests:
+        return 0
+    nonce_row = await _nonce_row(session, client, hot_wallet_address)
+    gas_price = client.suggested_gas_price()
+    signed = 0
+    for request in requests:
+        nonce = nonce_row.next_nonce
+        try:
+            asset = await _load_asset(session, request.asset_id)
+            request.attempts += 1
+            tx = _sign(
+                client,
+                asset=asset,
+                request=request,
+                private_key=hot_wallet_key,
+                nonce=nonce,
+                gas_price=gas_price,
+            )
+        except ValueError as exc:
+            # Asset not withdrawable → this request can never be signed; refund the reservation.
+            await _reverse_reservation(session, request, str(exc))
+            continue
+        except Exception:
+            logger.exception(
+                "withdrawal %s failed pre-sign on chain %s", request.id, client.chain_id,
+            )
+            continue
+        request.signed_tx = tx.raw
+        request.tx_hash = tx.tx_hash
+        request.nonce = nonce
+        request.status = WithdrawalStatus.SIGNING.value
+        nonce_row.next_nonce = nonce + 1
+        signed += 1
+    await session.flush()
+    return signed
+
+
+async def broadcast_signed(session: AsyncSession, client: SenderClient) -> int:
+    """Phase 2: broadcast every persisted SIGNING request (in nonce order). A broadcast that fails
+    is left SIGNING and retried next pass — the durable signed tx is never abandoned and never
+    re-signed, so a payout can't be double-sent or stranded. Refunds happen only via the dropped-tx
+    reconcile when a *different* tx supersedes the nonce (#3)."""
+    requests = list(
+        (
+            await session.execute(
+                select(WithdrawalRequest)
+                .where(
+                    WithdrawalRequest.chain_id == client.chain_id,
+                    WithdrawalRequest.status == WithdrawalStatus.SIGNING.value,
+                )
+                .order_by(WithdrawalRequest.nonce),
+            )
+        ).scalars(),
+    )
+    broadcast = 0
+    for request in requests:
+        if request.signed_tx is None:
+            continue
+        try:
+            request.tx_hash = client.broadcast_raw(request.signed_tx)
+        except ChainRpcError:
+            logger.warning("withdrawal %s broadcast failed; will retry next pass", request.id)
+            continue
+        request.status = WithdrawalStatus.BROADCAST.value
+        broadcast += 1
+    await session.flush()
+    return broadcast
+
+
 async def broadcast_pending(
     session: AsyncSession,
     client: SenderClient,
@@ -173,50 +280,27 @@ async def broadcast_pending(
     hot_wallet_address: str,
     batch: int = _DEFAULT_BATCH,
 ) -> int:
-    requests = await _claim_pending(session, client.chain_id, batch)
-    if not requests:
-        return 0
-    nonce_row = await _nonce_row(session, client, hot_wallet_address)
-    gas_price = client.suggested_gas_price()
-    broadcast = 0
-    for request in requests:
-        nonce = nonce_row.next_nonce
-        try:
-            asset = await _load_asset(session, request.asset_id)
-            request.attempts += 1
-            tx_hash = _send(
-                client,
-                asset=asset,
-                request=request,
-                private_key=hot_wallet_key,
-                nonce=nonce,
-                gas_price=gas_price,
-            )
-        except (ChainRpcError, ValueError) as exc:
-            # ChainRpcError from the client means the tx is *verified absent* (never broadcast);
-            # ValueError means the asset is not withdrawable. Both are safe to refund.
-            await _reverse_reservation(session, request, str(exc))
-            continue
-        except Exception:
-            logger.exception(
-                "withdrawal %s failed pre-broadcast on chain %s", request.id, client.chain_id,
-            )
-            continue
-        request.tx_hash = tx_hash
-        request.nonce = nonce
-        request.status = WithdrawalStatus.BROADCAST.value
-        nonce_row.next_nonce = nonce + 1
-        broadcast += 1
-    await session.flush()
-    return broadcast
+    """Sign-then-broadcast in one session. Production (worker.main) runs the two phases in SEPARATE
+    committed transactions so a crash between them re-broadcasts the durable signed tx rather than
+    re-signing at a fresh nonce; this combined helper is for the happy-path call/tests."""
+    await sign_pending(
+        session,
+        client,
+        hot_wallet_key=hot_wallet_key,
+        hot_wallet_address=hot_wallet_address,
+        batch=batch,
+    )
+    return await broadcast_signed(session, client)
 
 
 async def confirm_broadcast(
     session: AsyncSession,
     client: SenderClient,
     *,
+    confirmations: int,
     hot_wallet_address: str | None = None,
 ) -> int:
+    head = client.block_number()
     requests = list(
         (
             await session.execute(
@@ -234,6 +318,15 @@ async def confirm_broadcast(
         receipt = client.get_receipt(request.tx_hash)
         if receipt is None:
             await _reconcile_unmined(session, client, request, hot_wallet_address)
+            continue
+        # Do not act on a receipt until it is buried under `confirmations` blocks AND its block is
+        # still canonical (finding #7). A fresh or reorged-out receipt is left BROADCAST and
+        # re-evaluated next pass — so a payout reorged away within the confirmation window is never
+        # permanently settled, and a still-pending tx is never wrongly reversed.
+        if head - receipt.block_number < confirmations:
+            continue
+        canonical = client.block_hash(receipt.block_number)
+        if canonical is None or canonical != receipt.block_hash:
             continue
         if receipt.status == 1:
             await _settle(session, request)

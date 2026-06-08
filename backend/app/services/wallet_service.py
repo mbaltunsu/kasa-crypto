@@ -17,6 +17,7 @@ from app.schemas.faucet import FaucetResponse
 from app.schemas.wallet import BalanceResponse, DepositAddressResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
+from app.services.idempotency import scoped_idempotency_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -98,7 +99,8 @@ async def request_faucet(
         )
     asset = await get_asset(session, asset_id)
 
-    existing_tx = await ledger.find_transaction_by_idempotency_key(session, idempotency_key)
+    scoped_key = scoped_idempotency_key(domain="faucet", user_id=user.id, client_key=idempotency_key)
+    existing_tx = await ledger.find_transaction_by_idempotency_key(session, scoped_key)
     if existing_tx is not None:
         is_sim = existing_tx.ref_type == _FAUCET_SIM_REF
         status = DepositStatus.CREDITED if is_sim else DepositStatus.SEEN
@@ -116,7 +118,7 @@ async def request_faucet(
             asset=asset,
             to_address=address.address,
             amount=amount,
-            idempotency_key=idempotency_key,
+            idempotency_key=scoped_key,
             faucet_private_key=faucet_private_key,
             sender=sender_factory(asset.chain_id),
         )
@@ -126,7 +128,7 @@ async def request_faucet(
         asset=asset,
         to_address=address.address,
         amount=amount,
-        idempotency_key=idempotency_key,
+        idempotency_key=scoped_key,
     )
 
 

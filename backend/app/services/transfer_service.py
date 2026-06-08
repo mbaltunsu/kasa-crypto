@@ -11,6 +11,7 @@ from app.models.tables import User
 from app.schemas.transfer import TransferCreateResponse
 from app.services import ledger
 from app.services.errors import raise_api_error
+from app.services.idempotency import scoped_idempotency_key
 from app.services.wallet_service import get_asset
 
 
@@ -30,7 +31,10 @@ async def create_transfer(
     if amount <= 0:
         raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive")
 
-    existing_tx = await ledger.find_transaction_by_idempotency_key(session, idempotency_key)
+    scoped_key = scoped_idempotency_key(
+        domain="transfer", user_id=sender.id, client_key=idempotency_key,
+    )
+    existing_tx = await ledger.find_transaction_by_idempotency_key(session, scoped_key)
     if existing_tx is not None:
         return TransferCreateResponse(id=existing_tx.id, status=TransferStatus.CONFIRMED)
 
@@ -43,6 +47,9 @@ async def create_transfer(
         raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Cannot transfer to yourself")
 
     asset = await get_asset(session, asset_id)
+    # Lock the sender's wallet account before the balance check so concurrent debits cannot both
+    # pass and overspend (finding #2).
+    await ledger.lock_user_asset(session, user=sender, asset=asset)
     available = await ledger.available_balance(session, user=sender, asset=asset)
     if available < amount:
         raise_api_error(HTTPStatus.BAD_REQUEST, ErrorCode.INSUFFICIENT_FUNDS, "Insufficient funds")
@@ -52,7 +59,7 @@ async def create_transfer(
     transaction = await ledger.post(
         session,
         transaction_type=LedgerEntryType.TRANSFER_OUT,
-        idempotency_key=idempotency_key,
+        idempotency_key=scoped_key,
         ref_type="internal_transfer",
         ref_id=f"{sender.id}:{recipient.id}",
         legs=[
