@@ -28,7 +28,7 @@ from app.core.config import Settings, get_settings
 from app.core.hd_wallet import hot_wallet_account
 from app.db import get_session_factory
 from app.models.tables import ChainCursor
-from worker import nft_minter, nft_watcher, watcher, withdrawer
+from worker import nft_minter, nft_watcher, nft_withdrawer, watcher, withdrawer
 
 if TYPE_CHECKING:
     from kasa_shared.models import Chain
@@ -251,6 +251,40 @@ async def _nft_minter_loop(ctx: WorkerContext, client: SenderClient) -> None:
         await sleep_until_stop(ctx.stop, ctx.settings.withdrawer_poll_seconds)
 
 
+async def _nft_withdrawer_loop(ctx: WorkerContext, client: SenderClient) -> None:
+    while not ctx.stop.is_set():
+        try:
+            async with ctx.session_factory() as session:
+                await nft_withdrawer.sign_pending_withdrawals(
+                    session,
+                    client,
+                    hot_wallet_key=ctx.hot_wallet_key,
+                    hot_wallet_address=ctx.hot_wallet_address,
+                )
+                await session.commit()
+            async with ctx.session_factory() as session:
+                broadcast = await nft_withdrawer.broadcast_signed_withdrawals(session, client)
+                await session.commit()
+            async with ctx.session_factory() as session:
+                confirmed = await nft_withdrawer.confirm_withdrawals(
+                    session,
+                    client,
+                    confirmations=ctx.settings.deposit_confirmations,
+                    hot_wallet_address=ctx.hot_wallet_address,
+                )
+                await session.commit()
+            if broadcast or confirmed:
+                logger.info(
+                    "nft-withdrawer chain=%s broadcast=%d confirmed=%d",
+                    client.chain_id,
+                    broadcast,
+                    confirmed,
+                )
+        except Exception:
+            logger.exception("nft withdrawer pass failed chain=%s", client.chain_id)
+        await sleep_until_stop(ctx.stop, ctx.settings.withdrawer_poll_seconds)
+
+
 def _install_signal_handlers(stop: asyncio.Event) -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -280,8 +314,9 @@ async def run() -> None:
         tasks.append(asyncio.create_task(_watcher_loop(ctx, client, start_block(chain))))
         tasks.append(asyncio.create_task(_withdrawer_loop(ctx, client)))
         tasks.append(asyncio.create_task(_nft_minter_loop(ctx, client)))
+        tasks.append(asyncio.create_task(_nft_withdrawer_loop(ctx, client)))
 
-    logger.info("kasa worker started: %d loop(s) across %d chain(s)", len(tasks), len(tasks) // 3)
+    logger.info("kasa worker started: %d loop(s) across %d chain(s)", len(tasks), len(tasks) // 4)
     await asyncio.gather(*tasks)
     logger.info("kasa worker stopped")
 

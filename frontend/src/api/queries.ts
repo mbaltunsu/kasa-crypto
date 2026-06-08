@@ -170,6 +170,15 @@ export function useNftTransfer() {
   });
 }
 
+export function useNftWithdrawal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: S["NftWithdrawalCreateRequest"]) =>
+      must(await api.POST("/api/v1/nft-withdrawals", { body, params: idempotency() })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["nfts"] }),
+  });
+}
+
 export function useMintNft() {
   const qc = useQueryClient();
   return useMutation({

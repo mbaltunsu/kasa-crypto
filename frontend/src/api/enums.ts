@@ -8,6 +8,7 @@ export type UserRole = components["schemas"]["UserRole"];
 export type DepositStatus = components["schemas"]["DepositStatus"];
 export type WithdrawalStatus = components["schemas"]["WithdrawalStatus"];
 export type TransferStatus = components["schemas"]["TransferStatus"];
+export type NftWithdrawalStatus = components["schemas"]["NftWithdrawalStatus"];
 export type LedgerEntryType = components["schemas"]["LedgerEntryType"];
 export type ErrorCode = components["schemas"]["ErrorCode"];
 

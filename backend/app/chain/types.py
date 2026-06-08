@@ -173,6 +173,18 @@ class SenderClient(Protocol):
         gas_price: int,
     ) -> SignedTx: ...
 
+    def sign_erc721_transfer(  # noqa: PLR0913
+        self,
+        *,
+        private_key: str,
+        contract_address: str,
+        from_address: str,
+        to_address: str,
+        token_id: str,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx: ...
+
     def broadcast_raw(self, raw: str) -> str: ...
 
     def send_native(

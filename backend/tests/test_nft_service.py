@@ -12,10 +12,10 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.enums import NftHoldingStatus, TransferStatus, UserRole
+from app.core.enums import NftHoldingStatus, NftWithdrawalStatus, TransferStatus, UserRole
 from app.db import Base
-from app.models.tables import NftHolding, NftTransfer, User
-from app.services.nft_service import list_holdings, transfer_nft
+from app.models.tables import NftHolding, NftTransfer, NftWithdrawalRequest, User
+from app.services.nft_service import list_holdings, request_withdrawal, transfer_nft
 
 CONTRACT = "0x88F67A2EbD4C342496d0A477EF58F3a89BCF95F2"
 CHAIN_ID = 11_155_111
@@ -66,6 +66,19 @@ async def _holding(session: AsyncSession, *, user: User, token_id: str) -> NftHo
         status=NftHoldingStatus.HELD.value,
     )
     session.add(holding)
+    await session.flush()
+    return holding
+
+
+async def _holding_with_status(
+    session: AsyncSession,
+    *,
+    user: User,
+    token_id: str,
+    status: NftHoldingStatus,
+) -> NftHolding:
+    holding = await _holding(session, user=user, token_id=token_id)
+    holding.status = status.value
     await session.flush()
     return holding
 
@@ -191,3 +204,124 @@ async def test_transfer_rejects_nft_sender_does_not_own(session: AsyncSession) -
     assert holding.user_id == bob.id
     transfer_count = (await session.execute(select(func.count(NftTransfer.id)))).scalar_one()
     assert transfer_count == 0
+
+
+@pytest.mark.asyncio
+async def test_request_withdrawal_sets_holding_withdrawing_and_creates_request(
+    session: AsyncSession,
+) -> None:
+    alice, _bob, _charlie = await _users(session)
+    holding = await _holding(session, user=alice, token_id="10")  # noqa: S106
+    destination = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+
+    response = await request_withdrawal(
+        session,
+        user=alice,
+        nft_id=holding.id,
+        to_address=destination,
+        idempotency_key="withdraw-1",
+    )
+
+    assert response.status == NftWithdrawalStatus.REQUESTED
+    await session.refresh(holding)
+    assert holding.status == NftHoldingStatus.WITHDRAWING.value
+    withdrawal = (
+        await session.execute(
+            select(NftWithdrawalRequest).where(NftWithdrawalRequest.id == response.id),
+        )
+    ).scalar_one()
+    assert withdrawal.nft_holding_id == holding.id
+    assert withdrawal.user_id == alice.id
+    assert withdrawal.contract == CONTRACT
+    assert withdrawal.token_id == "10"  # noqa: S105
+    assert withdrawal.to_address == destination
+    assert withdrawal.status == NftWithdrawalStatus.REQUESTED.value
+
+
+@pytest.mark.asyncio
+async def test_request_withdrawal_is_idempotent_on_replay(session: AsyncSession) -> None:
+    alice, _bob, _charlie = await _users(session)
+    holding = await _holding(session, user=alice, token_id="11")  # noqa: S106
+
+    first = await request_withdrawal(
+        session,
+        user=alice,
+        nft_id=holding.id,
+        to_address="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        idempotency_key="withdraw-replay",
+    )
+    second = await request_withdrawal(
+        session,
+        user=alice,
+        nft_id=holding.id,
+        to_address="0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        idempotency_key="withdraw-replay",
+    )
+
+    assert second == first
+    withdrawal_count = (
+        await session.execute(select(func.count(NftWithdrawalRequest.id)))
+    ).scalar_one()
+    assert withdrawal_count == 1
+
+
+@pytest.mark.asyncio
+async def test_request_withdrawal_rejects_not_owned(session: AsyncSession) -> None:
+    alice, bob, _charlie = await _users(session)
+    holding = await _holding(session, user=bob, token_id="12")  # noqa: S106
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_withdrawal(
+            session,
+            user=alice,
+            nft_id=holding.id,
+            to_address="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            idempotency_key="withdraw-foreign",
+        )
+
+    assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
+    await session.refresh(holding)
+    assert holding.status == NftHoldingStatus.HELD.value
+
+
+@pytest.mark.asyncio
+async def test_request_withdrawal_rejects_not_held(session: AsyncSession) -> None:
+    alice, _bob, _charlie = await _users(session)
+    holding = await _holding_with_status(
+        session,
+        user=alice,
+        token_id="13",  # noqa: S106
+        status=NftHoldingStatus.WITHDRAWING,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_withdrawal(
+            session,
+            user=alice,
+            nft_id=holding.id,
+            to_address="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            idempotency_key="withdraw-not-held",
+        )
+
+    assert exc_info.value.status_code == HTTPStatus.NOT_FOUND
+    await session.refresh(holding)
+    assert holding.status == NftHoldingStatus.WITHDRAWING.value
+
+
+@pytest.mark.asyncio
+async def test_request_withdrawal_rejects_invalid_to_address(session: AsyncSession) -> None:
+    alice, _bob, _charlie = await _users(session)
+    holding = await _holding(session, user=alice, token_id="14")  # noqa: S106
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_withdrawal(
+            session,
+            user=alice,
+            nft_id=holding.id,
+            to_address="not-an-address",
+            idempotency_key="withdraw-bad-address",
+        )
+
+    assert exc_info.value.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    await session.refresh(holding)
+    assert holding.status == NftHoldingStatus.HELD.value

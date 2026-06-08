@@ -35,6 +35,7 @@ ERC721_TRANSFER_TOPIC_COUNT = 4
 NATIVE_TRANSFER_GAS = 21_000
 ERC20_TRANSFER_GAS = 90_000
 ERC721_MINT_GAS = 180_000
+ERC721_TRANSFER_GAS = 120_000
 ZERO_TOPIC = "0x" + "0" * 64
 
 ERC20_MIN_ABI: list[dict[str, object]] = [
@@ -636,6 +637,37 @@ class ChainClient:
             "value": 0,
             "nonce": nonce,
             "gas": ERC721_MINT_GAS,
+            "gasPrice": gas_price,
+            "chainId": self.chain_id,
+        }
+        return self._signed(account.sign_transaction(tx))
+
+    def sign_erc721_transfer(  # noqa: PLR0913
+        self,
+        *,
+        private_key: str,
+        contract_address: str,
+        from_address: str,
+        to_address: str,
+        token_id: str,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        """Sign safeTransferFrom(address,address,uint256). Pure: all tx fields are supplied."""
+        from eth_account import Account  # noqa: PLC0415
+        from eth_utils import keccak  # noqa: PLC0415
+
+        account = Account.from_key(private_key)
+        selector = keccak(text="safeTransferFrom(address,address,uint256)")[:4].hex()
+        encoded_from = address_to_topic(_checksum(from_address)).removeprefix("0x")
+        encoded_to = address_to_topic(_checksum(to_address)).removeprefix("0x")
+        encoded_token = f"{int(token_id):064x}"
+        tx = {
+            "to": _checksum(contract_address),
+            "data": "0x" + selector + encoded_from + encoded_to + encoded_token,
+            "value": 0,
+            "nonce": nonce,
+            "gas": ERC721_TRANSFER_GAS,
             "gasPrice": gas_price,
             "chainId": self.chain_id,
         }

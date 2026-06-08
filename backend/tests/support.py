@@ -20,7 +20,7 @@ from app.models.tables import Asset, DepositAddress, User
 
 @dataclass(frozen=True)
 class SentTx:
-    kind: str  # "native" | "erc20" | "erc721_mint"
+    kind: str  # "native" | "erc20" | "erc721_mint" | "erc721_transfer"
     to_address: str
     value: int
     nonce: int
@@ -174,6 +174,26 @@ class FakeChainClient:
         _ = private_key, gas_price
         return self._sign(
             "erc721_mint", to_address=to_address, value=0, nonce=nonce, token=contract_address,
+        )
+
+    def sign_erc721_transfer(  # noqa: PLR0913
+        self,
+        *,
+        private_key: str,
+        contract_address: str,
+        from_address: str,
+        to_address: str,
+        token_id: str,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        _ = private_key, from_address, gas_price
+        return self._sign(
+            "erc721_transfer",
+            to_address=to_address,
+            value=int(token_id),
+            nonce=nonce,
+            token=contract_address,
         )
 
     def broadcast_raw(self, raw: str) -> str:

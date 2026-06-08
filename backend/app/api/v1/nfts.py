@@ -6,8 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import IdempotencyKey, get_current_user
 from app.db import get_db
 from app.models.tables import User
-from app.schemas.nft import NftResponse, NftTransferCreateRequest, NftTransferCreateResponse
-from app.services.nft_service import list_holdings, transfer_nft
+from app.schemas.nft import (
+    NftResponse,
+    NftTransferCreateRequest,
+    NftTransferCreateResponse,
+    NftWithdrawalCreateRequest,
+    NftWithdrawalCreateResponse,
+)
+from app.services.nft_service import list_holdings, request_withdrawal, transfer_nft
 
 router = APIRouter(tags=["nfts"])
 
@@ -35,6 +41,27 @@ async def nft_transfer(
         sender=user,
         to_email=request.to_email,
         nft_id=request.nft_id,
+        idempotency_key=idempotency_key,
+    )
+    await session.commit()
+    return response
+
+
+@router.post(
+    "/nft-withdrawals",
+    status_code=status.HTTP_201_CREATED,
+)
+async def nft_withdrawal(
+    request: NftWithdrawalCreateRequest,
+    idempotency_key: IdempotencyKey,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> NftWithdrawalCreateResponse:
+    response = await request_withdrawal(
+        session,
+        user=user,
+        nft_id=request.nft_id,
+        to_address=request.to_address,
         idempotency_key=idempotency_key,
     )
     await session.commit()

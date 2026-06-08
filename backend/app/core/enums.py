@@ -57,6 +57,15 @@ class NftMintStatus(StrEnum):
     FAILED = "failed"
 
 
+class NftWithdrawalStatus(StrEnum):
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    SIGNING = "signing"
+    BROADCAST = "broadcast"
+    CONFIRMED = "confirmed"
+    FAILED = "failed"
+
+
 class LedgerEntryType(StrEnum):
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"

@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.core.enums import NftMintStatus, TransferStatus
+from app.core.enums import NftMintStatus, NftWithdrawalStatus, TransferStatus
 
 
 class NftResponse(BaseModel):
@@ -22,6 +22,16 @@ class NftTransferCreateRequest(BaseModel):
 class NftTransferCreateResponse(BaseModel):
     id: UUID
     status: TransferStatus
+
+
+class NftWithdrawalCreateRequest(BaseModel):
+    nft_id: UUID
+    to_address: str
+
+
+class NftWithdrawalCreateResponse(BaseModel):
+    id: UUID
+    status: NftWithdrawalStatus
 
 
 class AdminMintNftRequest(BaseModel):
