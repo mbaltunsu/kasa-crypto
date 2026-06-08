@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,10 +20,24 @@ from app.api.v1 import (
 )
 from app.core.config import get_settings
 from app.core.errors import ErrorResponse, register_error_handlers
+from app.db import get_session_factory
+from app.services.auth_service import ensure_demo_user
+
+logger = logging.getLogger("kasa.api")
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    if settings.seed_demo_user:
+        try:
+            async with get_session_factory()() as session:
+                created = await ensure_demo_user(session, settings)
+                await session.commit()
+            if created:
+                logger.info("seeded demo login %s", settings.demo_email)
+        except Exception:  # noqa: BLE001 - demo seeding must never block API startup
+            logger.warning("demo user seed skipped (is the DB migrated?)", exc_info=True)
     yield
 
 

@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # RPC); otherwise the admin report stays fast and uses ledger liabilities as the reserve figure.
     reserves_onchain: bool = Field(default=False, alias="RESERVES_ONCHAIN")
 
+    # Demo convenience: seed a known login at startup (off by default; the login form prefills it).
+    seed_demo_user: bool = Field(default=False, alias="SEED_DEMO_USER")
+    demo_email: str = Field(default="demo@kasa.app", alias="DEMO_EMAIL")
+    demo_password: str = Field(default="kasademo123", alias="DEMO_PASSWORD")
+
     def rpc_urls(self, chain_id: int) -> list[str]:
         field = _RPC_FIELD_BY_CHAIN.get(chain_id)
         if field is None:

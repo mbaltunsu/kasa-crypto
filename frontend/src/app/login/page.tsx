@@ -10,15 +10,27 @@ import { useLogin, useRegister } from "@/api/queries";
 
 type Mode = "login" | "register";
 
+// Demo login, prefilled for one-click access. Matches the backend DEMO_EMAIL / DEMO_PASSWORD
+// defaults that SEED_DEMO_USER seeds at startup.
+const DEMO_EMAIL = "demo@kasa.app";
+const DEMO_PASSWORD = "kasademo123";
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(DEMO_EMAIL);
+  const [password, setPassword] = useState(DEMO_PASSWORD);
 
   const login = useLogin();
   const register = useRegister();
   const active = mode === "login" ? login : register;
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    // Keep the demo creds prefilled for sign-in; clear them when creating a fresh account.
+    setEmail(next === "login" ? DEMO_EMAIL : "");
+    setPassword(next === "login" ? DEMO_PASSWORD : "");
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,7 +53,7 @@ export default function LoginPage() {
               <button
                 key={m}
                 type="button"
-                onClick={() => setMode(m)}
+                onClick={() => switchMode(m)}
                 className={
                   "flex-1 rounded-md px-3 py-1.5 transition-colors " +
                   (mode === m ? "bg-surface font-medium text-ink" : "text-muted hover:text-ink")
@@ -51,6 +63,12 @@ export default function LoginPage() {
               </button>
             ))}
           </div>
+
+          {mode === "login" && (
+            <p className="mb-4 rounded-md bg-gold/10 px-3 py-2 text-center text-xs text-gold ring-1 ring-gold/25">
+              ✨ Demo login prefilled — just press <span className="font-semibold">Sign in</span>
+            </p>
+          )}
 
           <form className="space-y-4" onSubmit={submit}>
             <Field label="Email" htmlFor="email">

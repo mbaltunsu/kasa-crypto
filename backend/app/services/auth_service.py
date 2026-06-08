@@ -3,6 +3,7 @@ from __future__ import annotations
 from http import HTTPStatus
 from uuid import UUID
 
+from kasa_shared.registry import list_chains
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +20,6 @@ from app.core.security import (
 )
 from app.models.tables import DepositAddress, User
 from app.services.errors import raise_api_error
-from kasa_shared.registry import list_chains
 
 
 def _normalize_email(email: str) -> str:
@@ -82,6 +82,26 @@ async def register_user(
             "Email or deposit address is already registered",
         )
     return user
+
+
+async def ensure_demo_user(session: AsyncSession, settings: Settings) -> bool:
+    """Idempotently create the prefilled demo login (used by the API lifespan when SEED_DEMO_USER).
+
+    Returns True if it created the user this call, False if it already existed.
+    """
+    normalized_email = _normalize_email(settings.demo_email)
+    existing = (
+        await session.execute(select(User).where(User.email == normalized_email))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return False
+    await register_user(
+        session,
+        email=settings.demo_email,
+        password=settings.demo_password,
+        settings=settings,
+    )
+    return True
 
 
 async def authenticate_user(session: AsyncSession, *, email: str, password: str) -> User:
