@@ -1,0 +1,35 @@
+# Build contexts are the repo root for both images; keep them lean and reproducible.
+
+# VCS / OS
+.git
+.gitignore
+**/.DS_Store
+
+# Secrets / local env (compose injects env_file at runtime)
+.env
+**/.env.local
+
+# Node
+**/node_modules
+**/.next
+**/.turbo
+
+# Python
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# Build artifacts (rebuilt inside the images)
+packages/shared/dist
+contracts/artifacts
+contracts/cache
+contracts/typechain-types
+
+# Local process notes / agent dirs (gitignored, never needed at build)
+HANDOFF.md
+PLAN.md
+.claude
+.codex

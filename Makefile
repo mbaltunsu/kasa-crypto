@@ -8,7 +8,8 @@ install: ## install all deps (pnpm + uv)
 	pnpm install
 	cd backend && uv sync
 
-up: ## start full stack (postgres + hardhat-node + backend + worker + frontend)
+up: ## start full stack (postgres + migrate + backend + worker + frontend + hardhat-node)
+	@test -f .env || { cp .env.example .env; echo "created .env from .env.example (edit it for real testnet keys/RPCs)"; }
 	docker compose -f infra/docker-compose.yml up --build
 
 down: ## stop stack and wipe volumes

@@ -1,6 +1,8 @@
 # Kasa local stack. Only hard infra dependency is Postgres (jobs/queue use
-# SELECT … FOR UPDATE SKIP LOCKED, no external broker). App service build
-# contexts are filled in as backend/frontend/contracts gain their Dockerfiles.
+# SELECT … FOR UPDATE SKIP LOCKED, no external broker). The backend image serves both the API and
+# the worker; a one-shot `migrate` service applies Alembic migrations before either starts.
+#
+# Build contexts are the repo ROOT (..) so the images can COPY the shared trees / workspace packages.
 name: kasa
 
 services:
@@ -30,9 +32,23 @@ services:
     volumes:
       - ../:/app
 
-  # backend (FastAPI) — Dockerfile added in backend build phase
+  # One-shot DB migration (creates tables + seeds assets from the registry), gating the API + worker.
+  migrate:
+    image: kasa-backend:local
+    command: ["alembic", "upgrade", "head"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kasa}:${POSTGRES_PASSWORD:-kasa}@postgres:5432/${POSTGRES_DB:-kasa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # backend API (FastAPI). Owns the shared backend image build.
   backend:
-    build: ../backend
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    image: kasa-backend:local
     env_file: ../.env
     environment:
       # Inside the compose network reach Postgres by service name (overrides the host .env value).
@@ -40,13 +56,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
-    profiles: ["full"]
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health').status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # worker (watcher + withdrawal processor) — shares backend image
+  # worker (watcher + withdrawal processor) — shares the backend image, different command.
   worker:
-    build: ../backend
+    image: kasa-backend:local
     command: ["python", "-m", "worker.main"]
     env_file: ../.env
     environment:
@@ -54,17 +80,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    profiles: ["full"]
+      migrate:
+        condition: service_completed_successfully
 
-  # frontend (Next.js) — Dockerfile added in frontend build phase
+  # frontend (Next.js). Browser-side calls hit the host-mapped API at localhost:8000.
   frontend:
-    build: ../frontend
-    env_file: ../.env
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    image: kasa-frontend:local
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "3000:3000"
-    profiles: ["full"]
 
 volumes:
   pgdata:
