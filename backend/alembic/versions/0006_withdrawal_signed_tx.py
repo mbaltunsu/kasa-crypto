@@ -1,7 +1,7 @@
 """add withdrawal_requests.signed_tx
 
 Revision ID: 0006_withdrawal_signed_tx
-Revises: 0005_deposit_addresses_lower_unique
+Revises: 0005_deposit_addr_unique
 Create Date: 2026-06-08 00:00:05.000000
 
 Durable signed raw tx for the withdrawer outbox: the payout is signed and persisted (with its nonce)
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0006_withdrawal_signed_tx"
-down_revision = "0005_deposit_addresses_lower_unique"
+down_revision = "0005_deposit_addr_unique"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

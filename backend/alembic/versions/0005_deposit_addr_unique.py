@@ -1,7 +1,7 @@
 """case-insensitive unique index for deposit addresses
 
-Revision ID: 0005_deposit_addresses_lower_unique
-Revises: 0004_ledger_accounts_system_unique
+Revision ID: 0005_deposit_addr_unique
+Revises: 0004_ledger_system_unique
 Create Date: 2026-06-08 00:00:04.000000
 
 Deposit-address ownership is looked up case-insensitively (`address.lower()` in the watcher), but the
@@ -15,8 +15,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0005_deposit_addresses_lower_unique"
-down_revision = "0004_ledger_accounts_system_unique"
+revision = "0005_deposit_addr_unique"
+down_revision = "0004_ledger_system_unique"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
