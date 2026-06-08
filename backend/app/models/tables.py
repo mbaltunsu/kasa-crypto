@@ -191,6 +191,45 @@ class OnchainDeposit(Base):
     )
 
 
+class NftDeposit(Base):
+    __tablename__ = "nft_deposits"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('seen','confirmed','credited','orphaned')",
+            name="ck_nft_deposits_status",
+        ),
+        UniqueConstraint(
+            "chain_id",
+            "tx_hash",
+            "log_index",
+            name="uq_nft_deposits_chain_tx_log",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    contract: Mapped[str] = mapped_column(Text, nullable=False)
+    token_id: Mapped[str] = mapped_column(Text, nullable=False)
+    from_address: Mapped[str] = mapped_column(Text, nullable=False)
+    to_address: Mapped[str] = mapped_column(Text, nullable=False)
+    tx_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    log_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    block_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    block_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    # Bumped each time an ORPHANED row is resurrected after a reorg, mirroring
+    # onchain_deposits so same-tx re-mines stay observable and idempotent.
+    credit_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class NftHolding(Base):
     __tablename__ = "nft_holdings"
 

@@ -27,7 +27,8 @@ from app.chain.client import ChainClient
 from app.core.config import Settings, get_settings
 from app.core.hd_wallet import hot_wallet_account
 from app.db import get_session_factory
-from worker import nft_minter, watcher, withdrawer
+from app.models.tables import ChainCursor
+from worker import nft_minter, nft_watcher, watcher, withdrawer
 
 if TYPE_CHECKING:
     from kasa_shared.models import Chain
@@ -47,6 +48,16 @@ class WorkerContext:
     hot_wallet_address: str
 
 
+@dataclass(frozen=True)
+class DepositScanReport:
+    recorded: int
+    credited: int
+    orphaned: int
+    nft_recorded: int
+    nft_credited: int
+    nft_orphaned: int
+
+
 def start_block(chain: Chain) -> int:
     """The earliest block worth scanning: the lowest token deployment block on the chain."""
     token_blocks = [
@@ -61,27 +72,108 @@ async def sleep_until_stop(stop: asyncio.Event, seconds: float) -> None:
         await asyncio.wait_for(stop.wait(), timeout=seconds)
 
 
+async def _run_deposit_scans(
+    session: AsyncSession,
+    client: WatcherClient,
+    *,
+    ctx: WorkerContext,
+    start_block: int,
+) -> DepositScanReport:
+    chain_id = client.chain_id
+    head = client.block_number()
+    finalized = max(0, head - ctx.settings.deposit_confirmations)
+
+    cursor = await watcher.get_cursor(session, chain_id)
+    if cursor is None:
+        from_block = start_block
+        cursor = ChainCursor(
+            chain_id=chain_id,
+            last_scanned_block=head,
+            last_finalized_block=finalized,
+        )
+        session.add(cursor)
+    else:
+        from_block = cursor.last_scanned_block + 1
+        cursor.last_scanned_block = max(cursor.last_scanned_block, head)
+        cursor.last_finalized_block = finalized
+    await session.flush()
+
+    recorded = await watcher.record_deposits(
+        session,
+        client,
+        from_block=from_block,
+        to_block=head,
+        watch_internal=ctx.settings.watch_internal_transfers,
+    )
+    nft_recorded = await nft_watcher.record_nft_deposits(
+        session,
+        client,
+        from_block=from_block,
+        to_block=head,
+    )
+    credited = await watcher.confirm_and_credit(
+        session,
+        client,
+        confirmations=ctx.settings.deposit_confirmations,
+    )
+    nft_credited = await nft_watcher.confirm_and_credit_nfts(
+        session,
+        client,
+        confirmations=ctx.settings.deposit_confirmations,
+    )
+    margin = max(ctx.settings.reorg_depth, ctx.settings.reorg_finality_depth)
+    reorg_depth = ctx.settings.deposit_confirmations + margin
+    reorg = await watcher.handle_reorgs(session, client, reorg_depth=reorg_depth)
+    nft_reorg = await nft_watcher.handle_reorgs(
+        session,
+        client,
+        reorg_depth=reorg_depth,
+    )
+    lowest_blocks = [
+        block for block in (reorg.lowest_block, nft_reorg.lowest_block) if block is not None
+    ]
+    if lowest_blocks:
+        cursor.last_scanned_block = min(cursor.last_scanned_block, min(lowest_blocks) - 1)
+        await session.flush()
+    return DepositScanReport(
+        recorded=recorded,
+        credited=credited,
+        orphaned=reorg.orphaned,
+        nft_recorded=nft_recorded,
+        nft_credited=nft_credited,
+        nft_orphaned=nft_reorg.orphaned,
+    )
+
+
 async def _watcher_loop(ctx: WorkerContext, client: WatcherClient, scan_from: int) -> None:
     while not ctx.stop.is_set():
         try:
             async with ctx.session_factory() as session:
-                report = await watcher.run_scan(
+                report = await _run_deposit_scans(
                     session,
                     client,
-                    confirmations=ctx.settings.deposit_confirmations,
-                    reorg_depth=ctx.settings.reorg_depth,
-                    finality_depth=ctx.settings.reorg_finality_depth,
+                    ctx=ctx,
                     start_block=scan_from,
-                    watch_internal=ctx.settings.watch_internal_transfers,
                 )
                 await session.commit()
-            if report.recorded or report.credited or report.orphaned:
+            if (
+                report.recorded
+                or report.credited
+                or report.orphaned
+                or report.nft_recorded
+                or report.nft_credited
+                or report.nft_orphaned
+            ):
                 logger.info(
-                    "watcher chain=%s recorded=%d credited=%d orphaned=%d",
+                    "watcher chain=%s recorded=%d credited=%d orphaned=%d "
+                    "nft_recorded=%d nft_credited=%d nft_orphaned=%d",
                     client.chain_id,
                     report.recorded,
                     report.credited,
                     report.orphaned,
+                    report.nft_recorded,
+                    report.nft_credited,
+                    report.nft_orphaned,
                 )
         except Exception:
             logger.exception("watcher pass failed chain=%s", client.chain_id)

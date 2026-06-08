@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.client import ChainRpcError, erc721_minted_token_id_from_receipt
-from app.chain.types import Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
+from app.chain.types import Erc20Transfer, Erc721Transfer, NativeTransfer, SignedTx, TxReceipt
 from app.core.enums import UserRole
 from app.models.tables import Asset, DepositAddress, User
 
@@ -36,6 +36,7 @@ class FakeChainClient:
     head: int = 0
     block_hashes: dict[int, str] = field(default_factory=dict)
     erc20_transfers: list[Erc20Transfer] = field(default_factory=list)
+    erc721_transfers: list[Erc721Transfer] = field(default_factory=list)
     native_transfers: list[NativeTransfer] = field(default_factory=list)
     internal_transfers: list[NativeTransfer] = field(default_factory=list)
     receipts: dict[str, TxReceipt] = field(default_factory=dict)
@@ -85,6 +86,24 @@ class FakeChainClient:
             transfer
             for transfer in self.native_transfers
             if transfer.to_address.lower() in recipients
+            and from_block <= transfer.block_number <= to_block
+        ]
+
+    def fetch_erc721_transfers(
+        self,
+        *,
+        contract_addresses: list[str],
+        to_addresses: list[str],
+        from_block: int,
+        to_block: int,
+    ) -> list[Erc721Transfer]:
+        contracts = {a.lower() for a in contract_addresses}
+        recipients = {a.lower() for a in to_addresses}
+        return [
+            transfer
+            for transfer in self.erc721_transfers
+            if transfer.contract_address.lower() in contracts
+            and transfer.to_address.lower() in recipients
             and from_block <= transfer.block_number <= to_block
         ]
 

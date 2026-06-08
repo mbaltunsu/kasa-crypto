@@ -19,6 +19,13 @@ class DepositStatus(StrEnum):
     ORPHANED = "orphaned"
 
 
+class NftDepositStatus(StrEnum):
+    SEEN = "seen"
+    CONFIRMED = "confirmed"
+    CREDITED = "credited"
+    ORPHANED = "orphaned"
+
+
 class WithdrawalStatus(StrEnum):
     REQUESTED = "requested"
     APPROVED = "approved"

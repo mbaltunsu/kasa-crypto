@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from app.chain.types import (
     NATIVE_LOG_INDEX,
     Erc20Transfer,
+    Erc721Transfer,
     NativeTransfer,
     SignedTx,
     TxLog,
@@ -386,6 +387,45 @@ class ChainClient:
                 )
                 for log in self._get_logs(log_filter)
             )
+        return transfers
+
+    def fetch_erc721_transfers(
+        self,
+        *,
+        contract_addresses: list[str],
+        to_addresses: list[str],
+        from_block: int,
+        to_block: int,
+    ) -> list[Erc721Transfer]:
+        if not contract_addresses or not to_addresses or from_block > to_block:
+            return []
+        addresses = [_checksum(address) for address in contract_addresses]
+        to_topics = [address_to_topic(address) for address in to_addresses]
+        transfers: list[Erc721Transfer] = []
+        for low, high in block_ranges(from_block, to_block, self._block_chunk_size):
+            log_filter: dict[str, Any] = {
+                "address": addresses,
+                "fromBlock": low,
+                "toBlock": high,
+                "topics": [ERC20_TRANSFER_TOPIC, None, to_topics],
+            }
+            for log in self._get_logs(log_filter):
+                topics = [_to_hex(topic) for topic in log["topics"]]
+                data = _to_hex(log["data"])
+                if len(topics) != ERC721_TRANSFER_TOPIC_COUNT or data not in {"", "0x", "0x0"}:
+                    continue
+                transfers.append(
+                    Erc721Transfer(
+                        contract_address=_checksum(_to_hex(log["address"])),
+                        from_address=topic_to_address(topics[1]),
+                        to_address=topic_to_address(topics[2]),
+                        token_id=str(int(topics[3], 16)),
+                        block_number=int(log["blockNumber"]),
+                        block_hash=_to_hex(log["blockHash"]),
+                        tx_hash=_to_hex(log["transactionHash"]),
+                        log_index=int(log["logIndex"]),
+                    ),
+                )
         return transfers
 
     def fetch_native_transfers(

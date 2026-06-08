@@ -28,6 +28,18 @@ class Erc20Transfer:
 
 
 @dataclass(frozen=True)
+class Erc721Transfer:
+    contract_address: str  # EIP-55 checksummed contract address
+    from_address: str
+    to_address: str
+    token_id: str
+    block_number: int
+    block_hash: str
+    tx_hash: str
+    log_index: int
+
+
+@dataclass(frozen=True)
 class NativeTransfer:
     to_address: str
     value: int
@@ -83,6 +95,15 @@ class WatcherClient(Protocol):
         from_block: int,
         to_block: int,
     ) -> list[Erc20Transfer]: ...
+
+    def fetch_erc721_transfers(
+        self,
+        *,
+        contract_addresses: list[str],
+        to_addresses: list[str],
+        from_block: int,
+        to_block: int,
+    ) -> list[Erc721Transfer]: ...
 
     def fetch_native_transfers(
         self,
