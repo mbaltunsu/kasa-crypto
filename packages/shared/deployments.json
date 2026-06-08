@@ -2,6 +2,24 @@
   "version": 1,
   "updatedAt": "2026-06-08T00:00:00Z",
   "networks": {
+    "31337": {
+      "name": "hardhat-local",
+      "nativeSymbol": "ETH",
+      "rpcEnv": "RPC_HARDHAT",
+      "explorerTxUrl": "http://localhost:8545/tx/{hash}",
+      "explorerAddressUrl": "http://localhost:8545/address/{address}",
+      "contracts": {
+        "DemoToken": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "decimals": 18,
+          "deploymentBlock": 0
+        },
+        "DemoCollectible": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "deploymentBlock": 0
+        }
+      }
+    },
     "43113": {
       "name": "avalanche-fuji",
       "nativeSymbol": "AVAX",

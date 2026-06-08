@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _RPC_FIELD_BY_CHAIN: dict[int, str] = {
     11_155_111: "rpc_ethereum_sepolia",
     43_113: "rpc_avalanche_fuji",
+    31_337: "rpc_hardhat",
 }
 
 
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     master_mnemonic: str = Field(alias="MASTER_MNEMONIC")
     rpc_ethereum_sepolia: str = Field(alias="RPC_ETHEREUM_SEPOLIA")
     rpc_avalanche_fuji: str = Field(alias="RPC_AVALANCHE_FUJI")
+    rpc_hardhat: str = Field(default="http://localhost:8545", alias="RPC_HARDHAT")
     deposit_confirmations: int = Field(default=12, alias="DEPOSIT_CONFIRMATIONS")
     frontend_origin: str = Field(default="http://localhost:3000", alias="FRONTEND_ORIGIN")
 

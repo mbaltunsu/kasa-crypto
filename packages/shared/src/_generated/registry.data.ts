@@ -71,6 +71,40 @@ export const registryBundle = {
           "deploymentBlock": 0
         }
       ]
+    },
+    {
+      "chainId": 31337,
+      "name": "hardhat-local",
+      "displayName": "Hardhat Local",
+      "nativeSymbol": "ETH",
+      "coinType": 60,
+      "rpcEnv": "RPC_HARDHAT",
+      "explorerTxUrl": "http://localhost:8545/tx/{hash}",
+      "explorerAddressUrl": "http://localhost:8545/address/{address}",
+      "assets": [
+        {
+          "type": "native",
+          "symbol": "ETH",
+          "name": "Ether",
+          "decimals": 18
+        },
+        {
+          "type": "erc20",
+          "symbol": "DEMO",
+          "name": "Demo Token",
+          "decimals": 18,
+          "address": "0x0000000000000000000000000000000000000000",
+          "deploymentBlock": 0
+        },
+        {
+          "type": "erc721",
+          "symbol": "KASA",
+          "name": "Kasa Collectible",
+          "decimals": 0,
+          "address": "0x0000000000000000000000000000000000000000",
+          "deploymentBlock": 0
+        }
+      ]
     }
   ]
 } as const;

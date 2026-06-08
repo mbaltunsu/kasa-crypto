@@ -30,4 +30,4 @@ async def test_health_and_registry_routes(monkeypatch: pytest.MonkeyPatch) -> No
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
     assert chains.status_code == 200
-    assert {chain["chain_id"] for chain in chains.json()} == {11_155_111, 43_113}
+    assert {chain["chain_id"] for chain in chains.json()} == {11_155_111, 43_113, 31_337}

@@ -20,7 +20,7 @@ from kasa_shared.registry import (
 def test_registry_lookups() -> None:
     sepolia = get_chain(11_155_111)
     assert sepolia.name == "ethereum-sepolia"
-    assert {chain.chain_id for chain in list_chains()} == {11_155_111, 43_113}
+    assert {chain.chain_id for chain in list_chains()} == {11_155_111, 43_113, 31_337}
     assert len(tokens_of_chain(11_155_111)) == 3
     assert erc20s_of_chain(11_155_111)[0].symbol == "DEMO"
     assert nfts_of_chain(11_155_111)[0].symbol == "KASA"
@@ -52,4 +52,4 @@ def test_address_indices_and_urls() -> None:
 def test_content_hash_stable() -> None:
     # MUST equal the TS `canonicalRows` sha256 (packages/shared check:parity) — this is the
     # cross-language registry parity gate. Do not change without changing the TS side identically.
-    assert content_hash() == "7b7bc78ae460fe3317475d32390672cffe218207e12246968ed101c07be8e070"
+    assert content_hash() == "96fc833bc4b41b58c94e050d6fde8830721fc83bc5cae799db6535d758cf14cb"

@@ -15,12 +15,16 @@ import { NATIVE_SENTINEL, ZERO_ADDRESS } from "../consts.js";
 
 const SEPOLIA = 11155111;
 const FUJI = 43113;
+const HARDHAT = 31337;
 
 describe("registry", () => {
   it("loads exactly the manifest chains", () => {
-    expect(chainIds().slice().sort((a, b) => a - b)).toEqual([SEPOLIA, FUJI].sort((a, b) => a - b));
+    expect(chainIds().slice().sort((a, b) => a - b)).toEqual(
+      [SEPOLIA, FUJI, HARDHAT].sort((a, b) => a - b),
+    );
     expect(getChain(SEPOLIA).name).toBe("ethereum-sepolia");
     expect(getChain(FUJI).nativeSymbol).toBe("AVAX");
+    expect(getChain(HARDHAT).name).toBe("hardhat-local");
   });
 
   it("native asset has no address field", () => {
