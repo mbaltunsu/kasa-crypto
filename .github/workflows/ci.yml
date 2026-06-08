@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shared:
+    name: shared registry (TS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --filter @kasa/shared --frozen-lockfile=false
+      - name: regenerate artifacts and assert no drift
+        working-directory: packages/shared
+        run: |
+          pnpm gen:registry && pnpm gen:schema && pnpm gen:deployments
+          git diff --exit-code -- src/_generated schema deployments.json
+      - run: pnpm --filter @kasa/shared lint
+      - run: pnpm --filter @kasa/shared test
+      - run: pnpm --filter @kasa/shared check:parity
+
+  contracts:
+    name: contracts (Hardhat)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --filter contracts --frozen-lockfile=false
+      - run: pnpm --filter contracts test
+
+  backend:
+    name: backend (pytest + ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: install
+        working-directory: backend
+        run: uv sync --dev
+      - name: ruff + mypy
+        working-directory: backend
+        run: |
+          uv run ruff check .
+          uv run mypy .
+      - name: pytest
+        working-directory: backend
+        run: uv run pytest -q
+      - name: openapi spec is fresh (no drift)
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///:memory:
+          JWT_SECRET: ci
+          MASTER_MNEMONIC: "test test test test test test test test test test test junk"
+          RPC_ETHEREUM_SEPOLIA: http://localhost
+          RPC_AVALANCHE_FUJI: http://localhost
+        run: |
+          uv run python scripts/export_openapi.py
+          git diff --exit-code -- ../packages/shared/openapi.json
+
+  frontend:
+    name: frontend (build + typed-client drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --filter @kasa/shared --filter frontend --frozen-lockfile=false
+      - run: pnpm --filter @kasa/shared build
+      - name: typed client is fresh (no drift)
+        working-directory: frontend
+        run: |
+          pnpm gen:api
+          git diff --exit-code -- src/api/schema.gen.ts
+      - run: pnpm --filter frontend typecheck
+      - run: pnpm --filter frontend build

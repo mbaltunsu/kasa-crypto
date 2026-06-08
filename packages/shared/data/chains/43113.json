@@ -1,0 +1,15 @@
+{
+  "chainId": 43113,
+  "name": "avalanche-fuji",
+  "displayName": "Avalanche Fuji",
+  "nativeSymbol": "AVAX",
+  "coinType": 60,
+  "rpcEnv": "RPC_AVALANCHE_FUJI",
+  "explorerTxUrl": "https://testnet.snowtrace.io/tx/{hash}",
+  "explorerAddressUrl": "https://testnet.snowtrace.io/address/{address}",
+  "assets": [
+    { "type": "native", "symbol": "AVAX", "name": "Avalanche", "decimals": 18 },
+    { "type": "erc20", "symbol": "DEMO", "name": "Demo Token", "decimals": 18, "address": "0x0000000000000000000000000000000000000000", "deploymentBlock": 0 },
+    { "type": "erc721", "symbol": "KASA", "name": "Kasa Collectible", "decimals": 0, "address": "0x0000000000000000000000000000000000000000", "deploymentBlock": 0 }
+  ]
+}

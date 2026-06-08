@@ -1,0 +1,15 @@
+{
+  "chainId": 11155111,
+  "name": "ethereum-sepolia",
+  "displayName": "Ethereum Sepolia",
+  "nativeSymbol": "ETH",
+  "coinType": 60,
+  "rpcEnv": "RPC_ETHEREUM_SEPOLIA",
+  "explorerTxUrl": "https://sepolia.etherscan.io/tx/{hash}",
+  "explorerAddressUrl": "https://sepolia.etherscan.io/address/{address}",
+  "assets": [
+    { "type": "native", "symbol": "ETH", "name": "Ether", "decimals": 18 },
+    { "type": "erc20", "symbol": "DEMO", "name": "Demo Token", "decimals": 18, "address": "0x0000000000000000000000000000000000000000", "deploymentBlock": 0 },
+    { "type": "erc721", "symbol": "KASA", "name": "Kasa Collectible", "decimals": 0, "address": "0x0000000000000000000000000000000000000000", "deploymentBlock": 0 }
+  ]
+}

@@ -1,0 +1,81 @@
+[project]
+name = "kasa-backend"
+version = "0.1.0"
+description = "Python backend for Kasa custodial multi-chain exchange wallet"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy[asyncio]>=2",
+  "alembic",
+  "pydantic>=2",
+  "pydantic-settings",
+  "psycopg[binary]",
+  "python-jose[cryptography]",
+  "passlib[argon2]",
+  "web3",
+  "bip-utils",
+]
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "httpx",
+  "aiosqlite",
+  "ruff",
+  "mypy",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = [
+  ".",
+  "../packages/shared/python",
+]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "D",
+  "COM812",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"alembic/**/*.py" = ["INP001"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "../packages/shared/python"
+plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
+warn_return_any = true
+warn_unused_configs = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+  "jose.*",
+  "passlib.*",
+]
+ignore_missing_imports = true

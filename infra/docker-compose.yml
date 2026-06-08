@@ -1,0 +1,70 @@
+# Kasa local stack. Only hard infra dependency is Postgres (jobs/queue use
+# SELECT … FOR UPDATE SKIP LOCKED, no external broker). App service build
+# contexts are filled in as backend/frontend/contracts gain their Dockerfiles.
+name: kasa
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kasa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kasa}
+      POSTGRES_DB: ${POSTGRES_DB:-kasa}
+    ports:
+      - "5433:5432" # host 5433 to avoid clashing with a local Postgres on 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kasa}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  hardhat-node:
+    # Local EVM for dev/CI (public testnets used for the hosted demo).
+    image: node:20-alpine
+    working_dir: /app/contracts
+    command: sh -c "corepack enable && pnpm install && pnpm hardhat node --hostname 0.0.0.0"
+    ports:
+      - "8545:8545"
+    volumes:
+      - ../:/app
+
+  # backend (FastAPI) — Dockerfile added in backend build phase
+  backend:
+    build: ../backend
+    env_file: ../.env
+    environment:
+      # Inside the compose network reach Postgres by service name (overrides the host .env value).
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kasa}:${POSTGRES_PASSWORD:-kasa}@postgres:5432/${POSTGRES_DB:-kasa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    profiles: ["full"]
+
+  # worker (watcher + withdrawal processor) — shares backend image
+  worker:
+    build: ../backend
+    command: ["python", "-m", "worker.main"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kasa}:${POSTGRES_PASSWORD:-kasa}@postgres:5432/${POSTGRES_DB:-kasa}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["full"]
+
+  # frontend (Next.js) — Dockerfile added in frontend build phase
+  frontend:
+    build: ../frontend
+    env_file: ../.env
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    profiles: ["full"]
+
+volumes:
+  pgdata:

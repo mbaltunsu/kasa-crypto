@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "updatedAt": "2026-06-08T00:00:00Z",
+  "networks": {
+    "43113": {
+      "name": "avalanche-fuji",
+      "nativeSymbol": "AVAX",
+      "rpcEnv": "RPC_AVALANCHE_FUJI",
+      "explorerTxUrl": "https://testnet.snowtrace.io/tx/{hash}",
+      "explorerAddressUrl": "https://testnet.snowtrace.io/address/{address}",
+      "contracts": {
+        "DemoToken": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "decimals": 18,
+          "deploymentBlock": 0
+        },
+        "DemoCollectible": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "deploymentBlock": 0
+        }
+      }
+    },
+    "11155111": {
+      "name": "ethereum-sepolia",
+      "nativeSymbol": "ETH",
+      "rpcEnv": "RPC_ETHEREUM_SEPOLIA",
+      "explorerTxUrl": "https://sepolia.etherscan.io/tx/{hash}",
+      "explorerAddressUrl": "https://sepolia.etherscan.io/address/{address}",
+      "contracts": {
+        "DemoToken": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "decimals": 18,
+          "deploymentBlock": 0
+        },
+        "DemoCollectible": {
+          "address": "0x0000000000000000000000000000000000000000",
+          "deploymentBlock": 0
+        }
+      }
+    }
+  }
+}

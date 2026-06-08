@@ -1,0 +1,34 @@
+{
+  "_comment": "Golden vectors for base-unit amount math. Run by BOTH the TS (vitest) and Python (pytest) amount libs in CI — proves the two implementations agree. parse: human->base(string). parseErrors: must throw. format: base->human (trailing zeros + bare dot trimmed; sign preserved).",
+  "parse": [
+    { "decimals": 18, "human": "1", "base": "1000000000000000000" },
+    { "decimals": 18, "human": "1.5", "base": "1500000000000000000" },
+    { "decimals": 18, "human": "0", "base": "0" },
+    { "decimals": 18, "human": "0.000000000000000001", "base": "1" },
+    { "decimals": 18, "human": "-1.5", "base": "-1500000000000000000" },
+    { "decimals": 18, "human": "1000000000.000000000000000001", "base": "1000000000000000000000000001" },
+    { "decimals": 18, "human": "12345678901234.123456789012345678", "base": "12345678901234123456789012345678" },
+    { "decimals": 6, "human": "1.234567", "base": "1234567" },
+    { "decimals": 6, "human": "1000000.5", "base": "1000000500000" },
+    { "decimals": 0, "human": "42", "base": "42" },
+    { "decimals": 18, "human": "1.", "base": "1000000000000000000" }
+  ],
+  "parseErrors": [
+    { "decimals": 6, "human": "1.2345678" },
+    { "decimals": 0, "human": "1.5" },
+    { "decimals": 18, "human": "1.5e3" },
+    { "decimals": 18, "human": "abc" },
+    { "decimals": 18, "human": "1.2.3" },
+    { "decimals": 18, "human": "" }
+  ],
+  "format": [
+    { "decimals": 18, "base": "1000000000000000000", "human": "1" },
+    { "decimals": 18, "base": "1500000000000000000", "human": "1.5" },
+    { "decimals": 18, "base": "1", "human": "0.000000000000000001" },
+    { "decimals": 18, "base": "0", "human": "0" },
+    { "decimals": 18, "base": "-1500000000000000000", "human": "-1.5" },
+    { "decimals": 6, "base": "1234567", "human": "1.234567" },
+    { "decimals": 0, "base": "42", "human": "42" },
+    { "decimals": 18, "base": "12345678901234123456789012345678", "human": "12345678901234.123456789012345678" }
+  ]
+}

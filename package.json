@@ -1,0 +1,20 @@
+{
+  "name": "kasa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Custodial multi-chain exchange wallet — FastAPI + Hardhat + Next.js monorepo",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "gen:schema": "pnpm --filter @kasa/shared gen:schema",
+    "gen:deployments": "pnpm --filter @kasa/shared gen:deployments",
+    "gen:api": "pnpm --filter frontend gen:api",
+    "check:parity": "pnpm --filter @kasa/shared check:parity",
+    "gen": "pnpm gen:schema && pnpm gen:deployments && pnpm gen:api"
+  }
+}

@@ -1,0 +1,58 @@
+# ───────────────────────── AI / assistant tooling (never committed) ─────────────────────────
+.claude/
+.codex/
+.cursor/
+.cursorrules
+.aider*
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.github/copilot-instructions.md
+PLAN.md
+HANDOFF.md
+*.plan.md
+
+# ───────────────────────── Secrets / env ─────────────────────────
+.env
+.env.*
+!.env.example
+
+# ───────────────────────── Node / pnpm ─────────────────────────
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+.turbo/
+
+# ───────────────────────── Python ─────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+.python-version
+
+# ───────────────────────── Solidity / Hardhat ─────────────────────────
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+contracts/coverage/
+contracts/coverage.json
+
+# ───────────────────────── OS / editor ─────────────────────────
+.DS_Store
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# NOTE: generated cross-language artifacts are intentionally COMMITTED (the no-drift contract):
+#   packages/shared/openapi.json · packages/shared/deployments.json
+#   packages/shared/schema/registry.schema.json · frontend/src/api/schema.gen.ts

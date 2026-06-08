@@ -1,0 +1,32 @@
+{
+  "name": "@kasa/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./deployments.json": "./deployments.json",
+    "./data/*": "./data/*"
+  },
+  "files": ["dist", "data", "schema", "deployments.json"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "gen:registry": "tsx scripts/gen-registry.ts",
+    "gen:schema": "tsx scripts/gen-schema.ts",
+    "gen:deployments": "tsx scripts/gen-deployments.ts",
+    "check:parity": "tsx scripts/check-parity.ts"
+  },
+  "dependencies": {
+    "viem": "^2.21.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "zod-to-json-schema": "^3.23.5"
+  }
+}
