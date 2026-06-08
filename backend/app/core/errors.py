@@ -115,6 +115,8 @@ async def unhandled_exception_handler(request: Request, _exc: Exception) -> JSON
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
-    app.add_exception_handler(HTTPException, http_exception_handler)
+    # Starlette's stub types handlers as accepting bare `Exception`; FastAPI dispatches by the
+    # registered subclass at runtime, so the narrower signatures are correct.
+    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_exception_handler)

@@ -5,10 +5,11 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from alembic import context
 
 ROOT = Path(__file__).resolve().parents[1]
 SHARED_PYTHON = ROOT.parent / "packages" / "shared" / "python"
@@ -36,7 +37,10 @@ def get_url() -> str:
     try:
         return _async_url(get_settings().database_url)
     except Exception:
-        return _async_url(config.get_main_option("sqlalchemy.url"))
+        configured = config.get_main_option("sqlalchemy.url")
+        if configured is None:
+            raise
+        return _async_url(configured)
 
 
 def run_migrations_offline() -> None:

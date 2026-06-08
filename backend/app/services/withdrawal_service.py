@@ -3,6 +3,7 @@ from __future__ import annotations
 from http import HTTPStatus
 from uuid import UUID
 
+from kasa_shared.registry import explorer_tx_url
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,6 @@ from app.schemas.withdrawal import WithdrawalCreateResponse, WithdrawalResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
 from app.services.wallet_service import get_asset
-from kasa_shared.registry import explorer_tx_url
 
 
 async def create_withdrawal(
@@ -56,7 +56,7 @@ async def create_withdrawal(
     reserve_account = await ledger.get_or_create_account(
         session,
         asset=asset,
-        name="withdrawals_reserved",
+        name=ledger.WITHDRAWALS_RESERVED_ACCOUNT,
         owner_type="system",
     )
     await ledger.post(

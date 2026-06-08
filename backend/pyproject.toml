@@ -52,6 +52,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
 "alembic/**/*.py" = ["INP001"]
+# The chain client is the single boundary to the untyped web3/eth-* libs; `Any` is intentional there.
+"app/chain/client.py" = ["ANN401"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -78,4 +80,16 @@ module = [
   "jose.*",
   "passlib.*",
 ]
+ignore_missing_imports = true
+
+# web3 / eth-* / bip_utils ship partial or no type info; treat them as untyped at the boundary
+# (the chain client confines all of their usage) so strict mode stays clean on our own code.
+[[tool.mypy.overrides]]
+module = [
+  "web3.*",
+  "eth_account.*",
+  "eth_utils.*",
+  "bip_utils.*",
+]
+follow_imports = "skip"
 ignore_missing_imports = true

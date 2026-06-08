@@ -21,6 +21,12 @@ from app.models.tables import (
 )
 
 USER_WALLET_ACCOUNT = "wallet"
+# System (owner_type='system') account names. Centralized so the watcher, withdrawer, faucet,
+# and reserves report all reference one spelling each (no string drift across services).
+FAUCET_SOURCE_ACCOUNT = "faucet_source"
+DEPOSITS_IN_TRANSIT_ACCOUNT = "deposits_in_transit"
+WITHDRAWALS_RESERVED_ACCOUNT = "withdrawals_reserved"
+WITHDRAWALS_SETTLED_ACCOUNT = "withdrawals_settled"
 
 
 @dataclass(frozen=True)

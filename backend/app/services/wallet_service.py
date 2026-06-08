@@ -3,18 +3,32 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 from uuid import UUID
 
+from kasa_shared.registry import explorer_tx_url, list_chains
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chain.types import NATIVE_LOG_INDEX
 from app.core.enums import DepositStatus, ErrorCode, LedgerEntryType
 from app.models.tables import Asset, DepositAddress, OnchainDeposit, User
 from app.schemas.faucet import FaucetResponse
 from app.schemas.wallet import BalanceResponse, DepositAddressResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
-from kasa_shared.registry import explorer_tx_url, list_chains
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from app.chain.types import SenderClient
+
+# ref_type tags distinguishing instant simulation faucet credits from real on-chain sends.
+_FAUCET_SIM_REF = "faucet_sim"
+_FAUCET_REAL_REF = "faucet_real"
+_FAUCET_DISPATCHED_ACCOUNT = "faucet_dispatched"
+# Length of a 0x-prefixed 32-byte transaction hash ("0x" + 64 hex chars).
+_TX_HASH_HEX_LEN = 66
 
 
 async def get_asset(session: AsyncSession, asset_id: UUID) -> Asset:
@@ -68,14 +82,27 @@ async def request_faucet(
     asset_id: UUID,
     amount: int,
     idempotency_key: str,
+    faucet_private_key: str | None = None,
+    sender_factory: Callable[[int], SenderClient] | None = None,
 ) -> FaucetResponse:
+    """Top up a user's deposit address with testnet funds.
+
+    Real mode (a `FAUCET_PRIVATE_KEY` + sender are supplied): broadcast a funded testnet
+    transaction to the user's deposit address and let the watcher record + credit it like any
+    other deposit. Simulation mode (offline / no key): immediately credit the ledger so the demo
+    is usable without a live chain.
+    """
     if amount <= 0:
-        raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive")
+        raise_api_error(
+            HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive",
+        )
     asset = await get_asset(session, asset_id)
+
     existing_tx = await ledger.find_transaction_by_idempotency_key(session, idempotency_key)
     if existing_tx is not None:
-        tx_hash = existing_tx.ref_id
-        return FaucetResponse(tx_hash=tx_hash, status=DepositStatus.SEEN)
+        is_sim = existing_tx.ref_type == _FAUCET_SIM_REF
+        status = DepositStatus.CREDITED if is_sim else DepositStatus.SEEN
+        return FaucetResponse(tx_hash=existing_tx.ref_id, status=status)
 
     address = (
         await session.execute(select(DepositAddress).where(DepositAddress.user_id == user.id))
@@ -83,20 +110,108 @@ async def request_faucet(
     if address is None:
         raise_not_found("Deposit address not found")
 
+    if faucet_private_key and sender_factory is not None:
+        return await _faucet_send(
+            session,
+            asset=asset,
+            to_address=address.address,
+            amount=amount,
+            idempotency_key=idempotency_key,
+            faucet_private_key=faucet_private_key,
+            sender=sender_factory(asset.chain_id),
+        )
+    return await _faucet_simulate(
+        session,
+        user=user,
+        asset=asset,
+        to_address=address.address,
+        amount=amount,
+        idempotency_key=idempotency_key,
+    )
+
+
+async def _faucet_send(
+    session: AsyncSession,
+    *,
+    asset: Asset,
+    to_address: str,
+    amount: int,
+    idempotency_key: str,
+    faucet_private_key: str,
+    sender: SenderClient,
+) -> FaucetResponse:
+    from eth_account import Account
+
+    faucet_address = Account.from_key(faucet_private_key).address
+    nonce = sender.pending_nonce(faucet_address)
+    gas_price = sender.suggested_gas_price()
+    if asset.type == "native":
+        tx_hash = sender.send_native(
+            private_key=faucet_private_key,
+            to_address=to_address,
+            value=amount,
+            nonce=nonce,
+            gas_price=gas_price,
+        )
+    elif asset.type == "erc20" and asset.contract_address is not None:
+        tx_hash = sender.send_erc20(
+            private_key=faucet_private_key,
+            token_address=asset.contract_address,
+            to_address=to_address,
+            value=amount,
+            nonce=nonce,
+            gas_price=gas_price,
+        )
+    else:
+        raise_api_error(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            ErrorCode.VALIDATION_ERROR,
+            "Asset is not faucet-claimable",
+        )
+    # Record a marker keyed by the idempotency key (the unique idempotency_key column makes a
+    # retry with the same key short-circuit at request_faucet rather than re-broadcasting). The
+    # watcher still records + credits the actual deposit independently from the on-chain tx.
+    source = await ledger.get_or_create_account(
+        session, asset=asset, name=ledger.FAUCET_SOURCE_ACCOUNT, owner_type="system",
+    )
+    dispatched = await ledger.get_or_create_account(
+        session, asset=asset, name=_FAUCET_DISPATCHED_ACCOUNT, owner_type="system",
+    )
+    await ledger.post(
+        session,
+        transaction_type=LedgerEntryType.DEPOSIT,
+        idempotency_key=idempotency_key,
+        ref_type=_FAUCET_REAL_REF,
+        ref_id=tx_hash,
+        legs=[
+            ledger.LedgerLeg(source, asset, -amount),
+            ledger.LedgerLeg(dispatched, asset, amount),
+        ],
+    )
+    return FaucetResponse(tx_hash=tx_hash, status=DepositStatus.SEEN)
+
+
+async def _faucet_simulate(
+    session: AsyncSession,
+    *,
+    user: User,
+    asset: Asset,
+    to_address: str,
+    amount: int,
+    idempotency_key: str,
+) -> FaucetResponse:
     tx_hash = _placeholder_tx_hash(idempotency_key)
-    # TODO(worker-slice): replace this placeholder with a real faucet transaction sent from a
-    # rate-limited funded key. Until then, the pending on-chain deposit lets the frontend integrate.
     session.add(
         OnchainDeposit(
             chain_id=asset.chain_id,
             tx_hash=tx_hash,
-            log_index=0,
+            log_index=NATIVE_LOG_INDEX,
             block_number=0,
             block_hash="0x" + ("0" * 64),
-            to_address=address.address,
+            to_address=to_address,
             asset_id=asset.id,
             amount=amount,
-            status=DepositStatus.SEEN.value,
+            status=DepositStatus.CREDITED.value,
             user_id=user.id,
         ),
     )
@@ -105,36 +220,37 @@ async def request_faucet(
     source = await ledger.get_or_create_account(
         session,
         asset=asset,
-        name="faucet_source",
+        name=ledger.FAUCET_SOURCE_ACCOUNT,
         owner_type="system",
     )
-    in_transit = await ledger.get_or_create_account(
-        session,
-        asset=asset,
-        name="deposits_in_transit",
-        owner_type="system",
-    )
+    wallet = await ledger.get_user_wallet_account(session, user=user, asset=asset)
     await ledger.post(
         session,
         transaction_type=LedgerEntryType.DEPOSIT,
         idempotency_key=idempotency_key,
-        ref_type="faucet_pending_tx",
+        ref_type=_FAUCET_SIM_REF,
         ref_id=tx_hash,
         legs=[
             ledger.LedgerLeg(source, asset, -amount),
-            ledger.LedgerLeg(in_transit, asset, amount),
+            ledger.LedgerLeg(wallet, asset, amount),
         ],
     )
-    return FaucetResponse(tx_hash=tx_hash, status=DepositStatus.SEEN)
+    return FaucetResponse(tx_hash=tx_hash, status=DepositStatus.CREDITED)
 
 
-def deposit_confirmations(_deposit: OnchainDeposit) -> int:
-    # TODO(worker-slice): compute confirmations from chain cursors/finalized block tracking.
-    return 0
+def deposit_confirmations(deposit: OnchainDeposit, last_scanned_block: int | None) -> int:
+    """Confirmation depth (head - block), matching the watcher's `head - block >= N` credit gate.
+
+    0 for simulated/unscanned deposits. Uses the same 0-indexed depth the watcher credits on, so the
+    displayed count reaching DEPOSIT_CONFIRMATIONS lines up exactly with the deposit being credited.
+    """
+    if deposit.block_number <= 0 or last_scanned_block is None:
+        return 0
+    return max(0, last_scanned_block - deposit.block_number)
 
 
 def deposit_explorer_url(deposit: OnchainDeposit) -> str:
-    if deposit.tx_hash.startswith("0x") and len(deposit.tx_hash) == 66:
+    if deposit.tx_hash.startswith("0x") and len(deposit.tx_hash) == _TX_HASH_HEX_LEN:
         return explorer_tx_url(deposit.chain_id, deposit.tx_hash)
     return ""
 

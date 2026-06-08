@@ -1,8 +1,13 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Maps registry chain ids to the settings field holding their (comma-separated) RPC URL list.
+_RPC_FIELD_BY_CHAIN: dict[int, str] = {
+    11_155_111: "rpc_ethereum_sepolia",
+    43_113: "rpc_avalanche_fuji",
+}
 
 
 class Settings(BaseSettings):
@@ -23,6 +28,26 @@ class Settings(BaseSettings):
     rpc_avalanche_fuji: str = Field(alias="RPC_AVALANCHE_FUJI")
     deposit_confirmations: int = Field(default=12, alias="DEPOSIT_CONFIRMATIONS")
     frontend_origin: str = Field(default="http://localhost:3000", alias="FRONTEND_ORIGIN")
+
+    # ── Chain workers (watcher + withdrawal processor) ─────────────────────────────
+    faucet_private_key: str | None = Field(default=None, alias="FAUCET_PRIVATE_KEY")
+    reorg_depth: int = Field(default=5, alias="REORG_DEPTH")
+    block_chunk_size: int = Field(default=2_000, alias="BLOCK_CHUNK_SIZE")
+    watcher_poll_seconds: float = Field(default=10.0, alias="WATCHER_POLL_SECONDS")
+    withdrawer_poll_seconds: float = Field(default=10.0, alias="WITHDRAWER_POLL_SECONDS")
+    rpc_max_retries: int = Field(default=3, alias="RPC_MAX_RETRIES")
+    rpc_request_timeout: float = Field(default=20.0, alias="RPC_REQUEST_TIMEOUT")
+    # Proof-of-reserves reads live balances off-chain only when explicitly enabled (needs reachable
+    # RPC); otherwise the admin report stays fast and uses ledger liabilities as the reserve figure.
+    reserves_onchain: bool = Field(default=False, alias="RESERVES_ONCHAIN")
+
+    def rpc_urls(self, chain_id: int) -> list[str]:
+        field = _RPC_FIELD_BY_CHAIN.get(chain_id)
+        if field is None:
+            msg = f"no RPC configured for chain {chain_id}"
+            raise KeyError(msg)
+        raw: str = getattr(self, field)
+        return [url.strip() for url in raw.split(",") if url.strip()]
 
 
 @lru_cache(maxsize=1)

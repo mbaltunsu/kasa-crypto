@@ -1,9 +1,14 @@
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import require_admin
+from app.chain.client import ChainClient
+from app.chain.types import BalanceClient
+from app.core.config import Settings, get_settings
+from app.core.hd_wallet import hot_wallet_account
 from app.db import get_db
 from app.models.tables import User
 from app.schemas.admin import ReservesResponse
@@ -13,6 +18,13 @@ from app.services.admin_service import list_withdrawals, mint_nft_stub, reserves
 from app.services.withdrawal_service import withdrawal_response
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _balance_factory(settings: Settings) -> Callable[[int], BalanceClient]:
+    def make(chain_id: int) -> BalanceClient:
+        return ChainClient.from_settings(chain_id, settings)
+
+    return make
 
 
 def _cursor_offset(cursor: str | None) -> int:
@@ -29,7 +41,15 @@ async def reserve_report(
     _admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> ReservesResponse:
-    return await reserves(session)
+    settings = get_settings()
+    if not settings.reserves_onchain:
+        return await reserves(session)
+    hot_wallet_address = hot_wallet_account(settings.master_mnemonic).address
+    return await reserves(
+        session,
+        hot_wallet_address=hot_wallet_address,
+        balance_factory=_balance_factory(settings),
+    )
 
 
 @router.get("/withdrawals", response_model=WithdrawalPageResponse)

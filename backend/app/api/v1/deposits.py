@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user
 from app.core.enums import DepositStatus
 from app.db import get_db
-from app.models.tables import Asset, OnchainDeposit, User
+from app.models.tables import Asset, ChainCursor, OnchainDeposit, User
 from app.schemas.deposit import DepositPageResponse, DepositResponse
 from app.services.wallet_service import deposit_confirmations, deposit_explorer_url
 
@@ -43,8 +43,13 @@ async def deposits(
             )
         ).all(),
     )
+    cursor_rows = (
+        await session.execute(select(ChainCursor.chain_id, ChainCursor.last_scanned_block))
+    ).all()
+    scanned_by_chain: dict[int, int] = {row[0]: row[1] for row in cursor_rows}
     items: list[DepositResponse] = []
     for deposit, asset in rows[:limit]:
+        confirmations = deposit_confirmations(deposit, scanned_by_chain.get(deposit.chain_id))
         items.append(
             DepositResponse(
                 id=deposit.id,
@@ -53,7 +58,7 @@ async def deposits(
                 symbol=asset.symbol,
                 amount=deposit.amount,
                 status=DepositStatus(deposit.status),
-                confirmations=deposit_confirmations(deposit),
+                confirmations=confirmations,
                 tx_hash=deposit.tx_hash,
                 explorer_url=deposit_explorer_url(deposit),
                 created_at=deposit.created_at,
