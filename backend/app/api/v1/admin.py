@@ -75,11 +75,17 @@ async def mint_nft(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> AdminMintNftResponse:
     settings = get_settings()
+    onchain = settings.mint_onchain and bool(settings.master_mnemonic)
+    # Custodial model: real mints go to the hot wallet so it can later sign the withdrawal transfer.
+    hot_wallet_address = (
+        hot_wallet_account(settings.master_mnemonic).address if onchain else None
+    )
     response = await admin_service.mint_nft(
         session,
         user_email=request.user_email,
         chain_id=request.chain_id,
-        onchain=settings.mint_onchain and bool(settings.master_mnemonic),
+        onchain=onchain,
+        hot_wallet_address=hot_wallet_address,
     )
     await session.commit()
     return response

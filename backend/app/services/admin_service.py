@@ -210,6 +210,7 @@ async def mint_nft(
     user_email: str,
     chain_id: int,
     onchain: bool,
+    hot_wallet_address: str | None = None,
 ) -> AdminMintNftResponse:
     if not onchain:
         return await mint_nft_stub(session, user_email=user_email, chain_id=chain_id)
@@ -219,17 +220,19 @@ async def mint_nft(
     ).scalar_one_or_none()
     if user is None:
         raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "User not found")
-    deposit_address = (
-        await session.execute(select(DepositAddress).where(DepositAddress.user_id == user.id))
-    ).scalar_one_or_none()
-    if deposit_address is None:
-        raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "Deposit address not found")
+    if hot_wallet_address is None:
+        raise_api_error(
+            HTTPStatus.INTERNAL_SERVER_ERROR, ErrorCode.VALIDATION_ERROR, "Hot wallet unavailable",
+        )
 
+    # Custodial model: mint to the custodian hot wallet so it holds the token on-chain and can later
+    # sign safeTransferFrom on withdrawal; the user owns the off-chain holding the worker creates on
+    # confirmation. (Internal transfers only move that off-chain claim.)
     request = NftMintRequest(
         user_id=user.id,
         chain_id=chain_id,
         contract=_registry_nft_contract(chain_id),
-        to_address=deposit_address.address,
+        to_address=to_checksum_address(hot_wallet_address),
         status=NftMintStatus.REQUESTED.value,
     )
     session.add(request)
