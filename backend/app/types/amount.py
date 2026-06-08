@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 from typing import Annotated, Protocol
 
 from pydantic import AfterValidator, BeforeValidator, PlainSerializer, WithJsonSchema
@@ -18,6 +19,12 @@ def _to_int(value: object) -> int:
         raise ValueError(msg)
     if isinstance(value, int):
         return value
+    if isinstance(value, Decimal):
+        # Postgres Numeric(78,0) deserializes to Decimal; accept it iff it is a whole number.
+        if value != value.to_integral_value():
+            msg = "base-unit amount must be a whole number"
+            raise ValueError(msg)
+        return int(value)
     if isinstance(value, str):
         if _WIRE_RE.fullmatch(value) is None:
             msg = "base-unit amount must be an integer string without leading zeros"

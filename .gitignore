@@ -56,3 +56,7 @@ contracts/coverage.json
 # NOTE: generated cross-language artifacts are intentionally COMMITTED (the no-drift contract):
 #   packages/shared/openapi.json · packages/shared/deployments.json
 #   packages/shared/schema/registry.schema.json · frontend/src/api/schema.gen.ts
+
+# local e2e python venv (infra/e2e.sh)
+.e2e-venv
+**/.e2e-venv

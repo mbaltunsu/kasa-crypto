@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -81,3 +82,15 @@ def test_base_unit_wire_validation_and_serialization() -> None:
 
     with pytest.raises(ValidationError):
         UnsignedAmountModel(amount="-1")
+
+
+def test_base_unit_accepts_integral_decimal_from_db() -> None:
+    # Postgres Numeric(78,0) yields a Decimal; building a wire model straight from a DB row must
+    # work (SQLite returns int and hid this — it surfaced only against real Postgres in the e2e).
+    model = AmountModel(amount=Decimal("500000000000000000"))
+    assert model.amount == 500_000_000_000_000_000
+    assert model.model_dump(mode="json")["amount"] == "500000000000000000"
+
+    # A non-integral Decimal must still be rejected (base units are always whole).
+    with pytest.raises(ValidationError):
+        AmountModel(amount=Decimal("1.5"))
