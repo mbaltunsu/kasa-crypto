@@ -14,7 +14,7 @@ from app.models.tables import User
 from app.schemas.admin import ReservesResponse
 from app.schemas.nft import AdminMintNftRequest, AdminMintNftResponse
 from app.schemas.withdrawal import WithdrawalPageResponse
-from app.services.admin_service import list_withdrawals, mint_nft_stub, reserves
+from app.services import admin_service
 from app.services.withdrawal_service import withdrawal_response
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -43,9 +43,9 @@ async def reserve_report(
 ) -> ReservesResponse:
     settings = get_settings()
     if not settings.reserves_onchain:
-        return await reserves(session)
+        return await admin_service.reserves(session)
     hot_wallet_address = hot_wallet_account(settings.master_mnemonic).address
-    return await reserves(
+    return await admin_service.reserves(
         session,
         hot_wallet_address=hot_wallet_address,
         balance_factory=_balance_factory(settings),
@@ -60,7 +60,7 @@ async def admin_withdrawals(
 ) -> WithdrawalPageResponse:
     limit = 50
     offset = _cursor_offset(cursor)
-    rows = await list_withdrawals(session, offset=offset, limit=limit + 1)
+    rows = await admin_service.list_withdrawals(session, offset=offset, limit=limit + 1)
     next_cursor = str(offset + limit) if len(rows) > limit else None
     return WithdrawalPageResponse(
         items=[withdrawal_response(row) for row in rows[:limit]],
@@ -74,10 +74,12 @@ async def mint_nft(
     _admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> AdminMintNftResponse:
-    response = await mint_nft_stub(
+    settings = get_settings()
+    response = await admin_service.mint_nft(
         session,
         user_email=request.user_email,
         chain_id=request.chain_id,
+        onchain=settings.mint_onchain and bool(settings.master_mnemonic),
     )
     await session.commit()
     return response

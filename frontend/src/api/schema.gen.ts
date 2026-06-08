@@ -363,10 +363,13 @@ export interface components {
         };
         /** AdminMintNftResponse */
         AdminMintNftResponse: {
+            /** Request Id */
+            request_id?: string | null;
+            status: components["schemas"]["NftMintStatus"];
             /** Token Id */
-            token_id: string;
+            token_id?: string | null;
             /** Tx Hash */
-            tx_hash: string;
+            tx_hash?: string | null;
         };
         /** AssetResponse */
         AssetResponse: {
@@ -550,6 +553,11 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * NftMintStatus
+         * @enum {string}
+         */
+        NftMintStatus: "requested" | "signing" | "broadcast" | "confirmed" | "failed";
         /** NftResponse */
         NftResponse: {
             /** Chain Id */

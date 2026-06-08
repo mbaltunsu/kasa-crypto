@@ -12,7 +12,14 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from app.chain.types import NATIVE_LOG_INDEX, Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
+from app.chain.types import (
+    NATIVE_LOG_INDEX,
+    Erc20Transfer,
+    NativeTransfer,
+    SignedTx,
+    TxLog,
+    TxReceipt,
+)
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -21,10 +28,13 @@ T = TypeVar("T")
 
 # keccak256("Transfer(address,address,uint256)") — identical for ERC-20 and ERC-721.
 ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+ERC721_TRANSFER_TOPIC_COUNT = 4
 
 # Gas limits: a bare value transfer is always 21000; an ERC-20 transfer gets generous head-room.
 NATIVE_TRANSFER_GAS = 21_000
 ERC20_TRANSFER_GAS = 90_000
+ERC721_MINT_GAS = 180_000
+ZERO_TOPIC = "0x" + "0" * 64
 
 ERC20_MIN_ABI: list[dict[str, object]] = [
     {
@@ -197,6 +207,30 @@ def decode_erc20_transfer(
         block_number=block_number,
         block_hash=block_hash,
     )
+
+
+def erc721_minted_token_id_from_receipt(
+    receipt: TxReceipt,
+    *,
+    contract_address: str,
+    to_address: str,
+) -> str | None:
+    wanted_contract = contract_address.lower()
+    wanted_to = address_to_topic(to_address).lower()
+    for log in receipt.logs:
+        topics = [topic.lower() for topic in log.topics]
+        if log.address.lower() != wanted_contract:
+            continue
+        if len(topics) != ERC721_TRANSFER_TOPIC_COUNT:
+            continue
+        if topics[0] != ERC20_TRANSFER_TOPIC or topics[1] != ZERO_TOPIC:
+            continue
+        if topics[2] != wanted_to:
+            continue
+        if log.data not in {"", "0x", "0x0"}:
+            continue
+        return str(int(topics[3], 16))
+    return None
 
 
 # ─────────────────────────── web3-backed client ───────────────────────────
@@ -540,6 +574,33 @@ class ChainClient:
         )
         return self._signed(account.sign_transaction(tx))
 
+    def sign_erc721_mint(
+        self,
+        *,
+        private_key: str,
+        contract_address: str,
+        to_address: str,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        """Sign DemoCollectible.mint(address). Pure: all tx fields are supplied, no RPC."""
+        from eth_account import Account  # noqa: PLC0415
+        from eth_utils import keccak  # noqa: PLC0415
+
+        account = Account.from_key(private_key)
+        selector = keccak(text="mint(address)")[:4].hex()
+        encoded_to = address_to_topic(_checksum(to_address)).removeprefix("0x")
+        tx = {
+            "to": _checksum(contract_address),
+            "data": "0x" + selector + encoded_to,
+            "value": 0,
+            "nonce": nonce,
+            "gas": ERC721_MINT_GAS,
+            "gasPrice": gas_price,
+            "chainId": self.chain_id,
+        }
+        return self._signed(account.sign_transaction(tx))
+
     def broadcast_raw(self, raw: str) -> str:
         """Broadcast a previously-signed raw tx, returning its hash.
 
@@ -625,4 +686,27 @@ class ChainClient:
             status=int(receipt["status"]),
             block_number=int(receipt["blockNumber"]),
             block_hash=_to_hex(receipt["blockHash"]),
+            logs=tuple(
+                TxLog(
+                    address=_checksum(_to_hex(log["address"])),
+                    topics=tuple(_to_hex(topic) for topic in log["topics"]),
+                    data=_to_hex(log["data"]),
+                    log_index=int(log["logIndex"]),
+                )
+                for log in receipt.get("logs", ())
+            ),
+        )
+
+    def erc721_minted_token_id(
+        self,
+        *,
+        tx_hash: str,
+        contract_address: str,
+        to_address: str,
+    ) -> str | None:
+        receipt = self.get_receipt(tx_hash)
+        if receipt is None:
+            return None
+        return erc721_minted_token_id_from_receipt(
+            receipt, contract_address=contract_address, to_address=to_address,
         )

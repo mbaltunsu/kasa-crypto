@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Proof-of-reserves reads live balances off-chain only when explicitly enabled (needs reachable
     # RPC); otherwise the admin report stays fast and uses ledger liabilities as the reserve figure.
     reserves_onchain: bool = Field(default=False, alias="RESERVES_ONCHAIN")
+    # Admin NFT minting uses the real on-chain outbox only when explicitly enabled. Otherwise it
+    # writes simulated holdings directly so the demo works offline.
+    mint_onchain: bool = Field(default=False, alias="MINT_ONCHAIN")
 
     # Demo convenience: seed a known login at startup (off by default; the login form prefills it).
     seed_demo_user: bool = Field(default=False, alias="SEED_DEMO_USER")

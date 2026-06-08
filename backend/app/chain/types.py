@@ -7,7 +7,7 @@ only place web3/RPC lives and it structurally satisfies all three protocols.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 # Native value transfers carry no log index; this sentinel makes (chain_id, tx_hash, log_index) a
@@ -40,11 +40,20 @@ class NativeTransfer:
 
 
 @dataclass(frozen=True)
+class TxLog:
+    address: str
+    topics: tuple[str, ...]
+    data: str
+    log_index: int
+
+
+@dataclass(frozen=True)
 class TxReceipt:
     tx_hash: str
     status: int  # 1 = success, 0 = reverted
     block_number: int
     block_hash: str
+    logs: tuple[TxLog, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -133,6 +142,16 @@ class SenderClient(Protocol):
         gas_price: int,
     ) -> SignedTx: ...
 
+    def sign_erc721_mint(
+        self,
+        *,
+        private_key: str,
+        contract_address: str,
+        to_address: str,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx: ...
+
     def broadcast_raw(self, raw: str) -> str: ...
 
     def send_native(
@@ -157,6 +176,14 @@ class SenderClient(Protocol):
     ) -> str: ...
 
     def get_receipt(self, tx_hash: str) -> TxReceipt | None: ...
+
+    def erc721_minted_token_id(
+        self,
+        *,
+        tx_hash: str,
+        contract_address: str,
+        to_address: str,
+    ) -> str | None: ...
 
 
 class BalanceClient(Protocol):

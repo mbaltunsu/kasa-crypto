@@ -118,7 +118,9 @@ export default function AdminPage() {
           </form>
           {mint.isSuccess ? (
             <p className="mt-3 text-xs text-pos">
-              Minted token #{mint.data.token_id} · tx {mint.data.tx_hash.slice(0, 12)}…
+              {mint.data.status === "confirmed" && mint.data.token_id && mint.data.tx_hash
+                ? `Minted token #${mint.data.token_id} · tx ${mint.data.tx_hash.slice(0, 12)}…`
+                : `Mint request ${mint.data.request_id ?? ""} queued`}
             </p>
           ) : null}
         </Card>

@@ -5,16 +5,19 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from eth_utils import to_checksum_address
+from kasa_shared.consts import ZERO_ADDRESS
+from kasa_shared.registry import nfts_of_chain
 from sqlalchemy import case, func, select
 
 from app.chain.client import ChainRpcError
-from app.core.enums import ErrorCode, NftHoldingStatus
+from app.core.enums import ErrorCode, NftHoldingStatus, NftMintStatus
 from app.models.tables import (
     Asset,
     DepositAddress,
     LedgerAccount,
     LedgerEntry,
     NftHolding,
+    NftMintRequest,
     User,
     WithdrawalRequest,
 )
@@ -168,8 +171,7 @@ async def mint_nft_stub(
             ),
         )
     ).scalar_one()
-    # Deterministic placeholder receipt: once DemoCollectible is deployed, this would sign
-    # `mint(deposit_address)` from the hot wallet and return the real tx hash + token id.
+    # Deterministic placeholder receipt for offline demos.
     digest = hashlib.sha256(f"{user.id}:{chain_id}:{existing_count}".encode()).hexdigest()
     token_id = str(int(digest[:16], 16))
     session.add(
@@ -182,4 +184,54 @@ async def mint_nft_stub(
         ),
     )
     await session.flush()
-    return AdminMintNftResponse(tx_hash="0x" + digest, token_id=token_id)
+    return AdminMintNftResponse(
+        status=NftMintStatus.CONFIRMED,
+        tx_hash="0x" + digest,
+        token_id=token_id,
+    )
+
+
+def _registry_nft_contract(chain_id: int) -> str:
+    try:
+        asset = next(
+            (nft for nft in nfts_of_chain(chain_id) if nft.symbol.upper() == "KASA"),
+            None,
+        )
+    except KeyError:
+        asset = None
+    if asset is None or asset.address.lower() == ZERO_ADDRESS.lower():
+        raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.UNKNOWN_ASSET, "Unknown NFT asset")
+    return _checksum_contract_address(asset.address)
+
+
+async def mint_nft(
+    session: AsyncSession,
+    *,
+    user_email: str,
+    chain_id: int,
+    onchain: bool,
+) -> AdminMintNftResponse:
+    if not onchain:
+        return await mint_nft_stub(session, user_email=user_email, chain_id=chain_id)
+
+    user = (
+        await session.execute(select(User).where(User.email == user_email.strip().lower()))
+    ).scalar_one_or_none()
+    if user is None:
+        raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "User not found")
+    deposit_address = (
+        await session.execute(select(DepositAddress).where(DepositAddress.user_id == user.id))
+    ).scalar_one_or_none()
+    if deposit_address is None:
+        raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "Deposit address not found")
+
+    request = NftMintRequest(
+        user_id=user.id,
+        chain_id=chain_id,
+        contract=_registry_nft_contract(chain_id),
+        to_address=deposit_address.address,
+        status=NftMintStatus.REQUESTED.value,
+    )
+    session.add(request)
+    await session.flush()
+    return AdminMintNftResponse(request_id=request.id, status=NftMintStatus.REQUESTED)

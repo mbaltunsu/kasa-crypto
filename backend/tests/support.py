@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chain.client import ChainRpcError
+from app.chain.client import ChainRpcError, erc721_minted_token_id_from_receipt
 from app.chain.types import Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
 from app.core.enums import UserRole
 from app.models.tables import Asset, DepositAddress, User
@@ -20,7 +20,7 @@ from app.models.tables import Asset, DepositAddress, User
 
 @dataclass(frozen=True)
 class SentTx:
-    kind: str  # "native" | "erc20"
+    kind: str  # "native" | "erc20" | "erc721_mint"
     to_address: str
     value: int
     nonce: int
@@ -143,6 +143,20 @@ class FakeChainClient:
     ) -> SignedTx:
         return self._sign("erc20", to_address=to_address, value=value, nonce=nonce, token=token_address)
 
+    def sign_erc721_mint(
+        self,
+        *,
+        private_key: str,
+        contract_address: str,
+        to_address: str,
+        nonce: int,
+        gas_price: int,
+    ) -> SignedTx:
+        _ = private_key, gas_price
+        return self._sign(
+            "erc721_mint", to_address=to_address, value=0, nonce=nonce, token=contract_address,
+        )
+
     def broadcast_raw(self, raw: str) -> str:
         if self.send_error is not None:
             raise ChainRpcError(self.send_error)
@@ -188,6 +202,20 @@ class FakeChainClient:
 
     def get_receipt(self, tx_hash: str) -> TxReceipt | None:
         return self.receipts.get(tx_hash)
+
+    def erc721_minted_token_id(
+        self,
+        *,
+        tx_hash: str,
+        contract_address: str,
+        to_address: str,
+    ) -> str | None:
+        receipt = self.get_receipt(tx_hash)
+        if receipt is None:
+            return None
+        return erc721_minted_token_id_from_receipt(
+            receipt, contract_address=contract_address, to_address=to_address,
+        )
 
     def _sign(
         self,

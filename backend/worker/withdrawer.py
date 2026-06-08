@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import Select, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.client import ChainRpcError
 from app.core.enums import LedgerEntryType, WithdrawalStatus
-from app.models.tables import Asset, HotWalletNonce, User, WithdrawalRequest
+from app.models.tables import Asset, User, WithdrawalRequest
 from app.services import ledger
+from worker._nonce import nonce_row, supports_skip_locked
 
 if TYPE_CHECKING:
     from app.chain.types import SenderClient, SignedTx
@@ -31,13 +31,6 @@ logger = logging.getLogger("kasa.worker.withdrawer")
 
 _WITHDRAWAL_REF_TYPE = "withdrawal_request"
 _DEFAULT_BATCH = 20
-
-
-def _supports_skip_locked(session: AsyncSession) -> bool:
-    try:
-        return session.get_bind().dialect.name == "postgresql"
-    except Exception:  # noqa: BLE001 - dialect probe is best-effort; default to no row locking
-        return False
 
 
 async def _load_asset(session: AsyncSession, asset_id: UUID) -> Asset:
@@ -64,56 +57,9 @@ async def _claim_pending(
         .order_by(WithdrawalRequest.created_at, WithdrawalRequest.id)
         .limit(batch)
     )
-    if _supports_skip_locked(session):
+    if supports_skip_locked(session):
         statement = statement.with_for_update(skip_locked=True)
     return list((await session.execute(statement)).scalars())
-
-
-async def _select_nonce_row(session: AsyncSession, chain_id: int) -> HotWalletNonce | None:
-    statement: Select[tuple[HotWalletNonce]] = select(HotWalletNonce).where(
-        HotWalletNonce.chain_id == chain_id,
-    )
-    if _supports_skip_locked(session):
-        statement = statement.with_for_update()
-    return (await session.execute(statement)).scalar_one_or_none()
-
-
-async def _nonce_row(
-    session: AsyncSession,
-    client: SenderClient,
-    hot_wallet_address: str,
-) -> HotWalletNonce:
-    chain_id = client.chain_id
-    row = await _select_nonce_row(session, chain_id)
-    chain_nonce = client.pending_nonce(hot_wallet_address)
-    if row is None:
-        # Create inside a SAVEPOINT so a concurrent first-withdrawal pass that wins the race only
-        # rolls back THIS insert; then fall back to the winner's row. A bare flush would abort the
-        # whole pass on the chain_id PK violation (finding #9).
-        new_row = HotWalletNonce(
-            chain_id=chain_id, address=hot_wallet_address, next_nonce=chain_nonce,
-        )
-        try:
-            async with session.begin_nested():
-                session.add(new_row)
-                await session.flush()
-            return new_row
-        except IntegrityError:
-            row = await _select_nonce_row(session, chain_id)
-            if row is None:
-                raise
-    if row.address != hot_wallet_address:
-        # Hot wallet rotated → the persisted counter belongs to the old key. Re-key the row and
-        # reset to the new wallet's on-chain nonce instead of inheriting the old value (finding #5).
-        row.address = hot_wallet_address
-        row.next_nonce = chain_nonce
-    else:
-        # Reconcile against the chain so an out-of-band tx (e.g. a faucet sharing the key) or a lost
-        # increment can't leave us broadcasting at a stale, already-mined nonce that no-ops and
-        # wedges every later withdrawal (finding #12).
-        row.next_nonce = max(row.next_nonce, chain_nonce)
-    await session.flush()
-    return row
 
 
 def _sign(
@@ -205,11 +151,11 @@ async def sign_pending(
     requests = await _claim_pending(session, client.chain_id, batch)
     if not requests:
         return 0
-    nonce_row = await _nonce_row(session, client, hot_wallet_address)
+    hot_nonce = await nonce_row(session, client, hot_wallet_address)
     gas_price = client.suggested_gas_price()
     signed = 0
     for request in requests:
-        nonce = nonce_row.next_nonce
+        nonce = hot_nonce.next_nonce
         try:
             asset = await _load_asset(session, request.asset_id)
             request.attempts += 1
@@ -234,7 +180,7 @@ async def sign_pending(
         request.tx_hash = tx.tx_hash
         request.nonce = nonce
         request.status = WithdrawalStatus.SIGNING.value
-        nonce_row.next_nonce = nonce + 1
+        hot_nonce.next_nonce = nonce + 1
         signed += 1
     await session.flush()
     return signed

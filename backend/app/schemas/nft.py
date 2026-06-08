@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.core.enums import TransferStatus
+from app.core.enums import NftMintStatus, TransferStatus
 
 
 class NftResponse(BaseModel):
@@ -30,5 +30,7 @@ class AdminMintNftRequest(BaseModel):
 
 
 class AdminMintNftResponse(BaseModel):
-    tx_hash: str
-    token_id: str
+    request_id: UUID | None = None
+    status: NftMintStatus
+    tx_hash: str | None = None
+    token_id: str | None = None

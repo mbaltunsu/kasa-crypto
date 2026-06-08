@@ -34,18 +34,46 @@
       },
       "AdminMintNftResponse": {
         "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NftMintStatus"
+          },
           "token_id": {
-            "title": "Token Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Id"
           },
           "tx_hash": {
-            "title": "Tx Hash",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Hash"
           }
         },
         "required": [
-          "tx_hash",
-          "token_id"
+          "status"
         ],
         "title": "AdminMintNftResponse",
         "type": "object"
@@ -502,6 +530,17 @@
         ],
         "title": "LoginRequest",
         "type": "object"
+      },
+      "NftMintStatus": {
+        "enum": [
+          "requested",
+          "signing",
+          "broadcast",
+          "confirmed",
+          "failed"
+        ],
+        "title": "NftMintStatus",
+        "type": "string"
       },
       "NftResponse": {
         "properties": {

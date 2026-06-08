@@ -244,6 +244,34 @@ class NftTransfer(Base):
     )
 
 
+class NftMintRequest(Base):
+    __tablename__ = "nft_mint_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('requested','signing','broadcast','confirmed','failed')",
+            name="ck_nft_mint_requests_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    contract: Mapped[str] = mapped_column(Text, nullable=False)
+    to_address: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class WithdrawalRequest(Base):
     __tablename__ = "withdrawal_requests"
     __table_args__ = (
