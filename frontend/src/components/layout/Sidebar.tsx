@@ -29,6 +29,7 @@ const PRIMARY: NavItem[] = [
   { href: "/transfer", label: "Transfer", icon: ArrowRightLeft },
   { href: "/history", label: "History", icon: History },
   { href: "/nfts", label: "Collectibles", icon: Images },
+  { href: "/nft-transfer", label: "NFT Transfer", icon: ArrowRightLeft },
 ];
 
 export function Sidebar() {

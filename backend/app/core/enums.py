@@ -36,6 +36,12 @@ class TransferStatus(StrEnum):
     FAILED = "failed"
 
 
+class NftHoldingStatus(StrEnum):
+    HELD = "held"
+    WITHDRAWING = "withdrawing"
+    WITHDRAWN = "withdrawn"
+
+
 class LedgerEntryType(StrEnum):
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"

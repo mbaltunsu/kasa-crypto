@@ -36,7 +36,7 @@ def _cursor_offset(cursor: str | None) -> int:
         return 0
 
 
-@router.get("/reserves", response_model=ReservesResponse)
+@router.get("/reserves")
 async def reserve_report(
     _admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_db)],
@@ -52,11 +52,11 @@ async def reserve_report(
     )
 
 
-@router.get("/withdrawals", response_model=WithdrawalPageResponse)
+@router.get("/withdrawals")
 async def admin_withdrawals(
     _admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_db)],
-    cursor: str | None = Query(default=None),
+    cursor: Annotated[str | None, Query()] = None,
 ) -> WithdrawalPageResponse:
     limit = 50
     offset = _cursor_offset(cursor)
@@ -68,10 +68,16 @@ async def admin_withdrawals(
     )
 
 
-@router.post("/mint-nft", response_model=AdminMintNftResponse)
+@router.post("/mint-nft")
 async def mint_nft(
     request: AdminMintNftRequest,
     _admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> AdminMintNftResponse:
-    return await mint_nft_stub(session, user_email=request.user_email, chain_id=request.chain_id)
+    response = await mint_nft_stub(
+        session,
+        user_email=request.user_email,
+        chain_id=request.chain_id,
+    )
+    await session.commit()
+    return response

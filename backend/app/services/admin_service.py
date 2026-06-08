@@ -4,16 +4,17 @@ import hashlib
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
+from eth_utils import to_checksum_address
 from sqlalchemy import case, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.client import ChainRpcError
-from app.core.enums import ErrorCode
+from app.core.enums import ErrorCode, NftHoldingStatus
 from app.models.tables import (
     Asset,
     DepositAddress,
     LedgerAccount,
     LedgerEntry,
+    NftHolding,
     User,
     WithdrawalRequest,
 )
@@ -25,7 +26,16 @@ from app.services.errors import raise_api_error
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.chain.types import BalanceClient
+
+
+def _checksum_contract_address(address: str) -> str:
+    try:
+        return str(to_checksum_address(address))
+    except ValueError as exc:
+        raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, str(exc))
 
 
 async def _liabilities(session: AsyncSession, asset: Asset) -> int:
@@ -139,7 +149,37 @@ async def mint_nft_stub(
     if user is None:
         raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "User not found")
 
+    asset = (
+        await session.execute(
+            select(Asset)
+            .where(Asset.chain_id == chain_id, Asset.type == "erc721")
+            .order_by(Asset.symbol),
+        )
+    ).scalars().first()
+    if asset is None or asset.contract_address is None:
+        raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.UNKNOWN_ASSET, "Unknown NFT asset")
+    contract = _checksum_contract_address(asset.contract_address)
+
+    existing_count = (
+        await session.execute(
+            select(func.count(NftHolding.id)).where(
+                NftHolding.chain_id == chain_id,
+                func.lower(NftHolding.contract) == contract.lower(),
+            ),
+        )
+    ).scalar_one()
     # Deterministic placeholder receipt: once DemoCollectible is deployed, this would sign
     # `mint(deposit_address)` from the hot wallet and return the real tx hash + token id.
-    digest = hashlib.sha256(f"{user.id}:{chain_id}".encode()).hexdigest()
-    return AdminMintNftResponse(tx_hash="0x" + digest, token_id=str(int(digest[:12], 16)))
+    digest = hashlib.sha256(f"{user.id}:{chain_id}:{existing_count}".encode()).hexdigest()
+    token_id = str(int(digest[:16], 16))
+    session.add(
+        NftHolding(
+            user_id=user.id,
+            chain_id=chain_id,
+            contract=contract,
+            token_id=token_id,
+            status=NftHoldingStatus.HELD.value,
+        ),
+    )
+    await session.flush()
+    return AdminMintNftResponse(tx_hash="0x" + digest, token_id=token_id)

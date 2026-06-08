@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, setAccessToken } from "./client";
-import type { components } from "./schema.gen";
+import type { components } from "./client";
 
 type S = components["schemas"];
 
@@ -89,6 +89,10 @@ export function useNfts() {
   return useQuery({ queryKey: ["nfts"], queryFn: async () => must(await api.GET("/api/v1/nfts")) });
 }
 
+export function useMyNfts() {
+  return useNfts();
+}
+
 export function useAdminReserves() {
   return useQuery({
     queryKey: ["admin", "reserves"],
@@ -154,6 +158,15 @@ export function useTransfer() {
       void qc.invalidateQueries({ queryKey: ["balances"] });
       void qc.invalidateQueries({ queryKey: ["transactions"] });
     },
+  });
+}
+
+export function useNftTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: S["NftTransferCreateRequest"]) =>
+      must(await api.POST("/api/v1/nft-transfers", { body, params: idempotency() })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["nfts"] }),
   });
 }
 

@@ -191,12 +191,66 @@ class OnchainDeposit(Base):
     )
 
 
+class NftHolding(Base):
+    __tablename__ = "nft_holdings"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    contract: Mapped[str] = mapped_column(Text, nullable=False)
+    token_id: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    acquired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('held','withdrawing','withdrawn')",
+            name="ck_nft_holdings_status",
+        ),
+        Index(
+            "uq_nft_holdings_chain_contract_token",
+            "chain_id",
+            func.lower(contract),
+            "token_id",
+            unique=True,
+        ),
+    )
+
+
+class NftTransfer(Base):
+    __tablename__ = "nft_transfers"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending','submitted','confirmed','failed')",
+            name="ck_nft_transfers_status",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_nft_transfers_idempotency_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    nft_holding_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("nft_holdings.id"), nullable=False)
+    sender_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class WithdrawalRequest(Base):
     __tablename__ = "withdrawal_requests"
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_withdrawal_requests_amount_positive"),
         CheckConstraint(
-            "status in ('requested','approved','signing','broadcast','confirmed','failed','rejected')",
+            "status in "
+            "('requested','approved','signing','broadcast','confirmed','failed','rejected')",
             name="ck_withdrawal_requests_status",
         ),
     )
@@ -210,7 +264,7 @@ class WithdrawalRequest(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Persisted signed raw tx (set at SIGNING, before broadcast). Re-broadcasting this exact payload
-    # after a crash is idempotent — same nonce, same hash — so a payout can never be sent twice (#3).
+    # after a crash is idempotent — same nonce, same hash — no payout can be sent twice (#3).
     signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
     nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

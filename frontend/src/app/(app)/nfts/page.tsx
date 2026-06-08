@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { ExternalLink, Images } from "lucide-react";
 import { TopBar } from "@/components/layout/TopBar";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { shortChain } from "@/lib/assets";
@@ -29,20 +31,29 @@ export default function NftsPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             {(nfts.data ?? []).map((n) => (
               <Card key={`${n.contract}-${n.token_id}`} className="overflow-hidden">
-                <div className="grid h-32 place-items-center bg-gradient-to-br from-tech/20 to-surface">
-                  <Images className="h-10 w-10 text-tech" />
-                </div>
-                <div className="space-y-1 p-4">
+                <img
+                  src={n.image}
+                  alt={`Kasa Collectible #${n.token_id}`}
+                  className="h-32 w-full bg-surface2 object-cover"
+                />
+                <div className="space-y-3 p-4">
                   <div className="text-sm font-semibold">Kasa Collectible #{n.token_id}</div>
                   <div className="text-[11px] text-muted">{shortChain(n.chain_id)}</div>
-                  <a
-                    href={n.explorer_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-muted hover:text-gold"
-                  >
-                    View on explorer <ExternalLink className="h-3 w-3" />
-                  </a>
+                  <div className="flex items-center justify-between gap-3">
+                    <a
+                      href={n.explorer_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-muted hover:text-gold"
+                    >
+                      Explorer <ExternalLink className="h-3 w-3" />
+                    </a>
+                    <Link href={`/nft-transfer?nft_id=${encodeURIComponent(n.id)}`}>
+                      <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                        Send
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               </Card>
             ))}

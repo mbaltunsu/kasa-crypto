@@ -1,5 +1,6 @@
 import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema.gen";
+export type { components, paths } from "./schema.gen";
 
 const ACCESS_TOKEN_KEY = "kasa.access_token";
 
