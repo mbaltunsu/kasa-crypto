@@ -117,6 +117,7 @@ async def record_deposits(
     *,
     from_block: int,
     to_block: int,
+    watch_internal: bool = False,
 ) -> int:
     if from_block > to_block:
         return 0
@@ -159,6 +160,15 @@ async def record_deposits(
             from_block=from_block,
             to_block=to_block,
         )
+        if watch_internal:
+            # Opt-in: also credit native value delivered via contract internal calls. Each carries
+            # its own distinct log_index, so it dedups independently of the top-level send (#11).
+            natives = [
+                *natives,
+                *client.fetch_internal_transfers(
+                    to_addresses=addresses, from_block=from_block, to_block=to_block,
+                ),
+            ]
         for native in natives:
             user_id = owners.get(native.to_address.lower())
             if user_id is None:
@@ -166,7 +176,7 @@ async def record_deposits(
             deposit = OnchainDeposit(
                 chain_id=client.chain_id,
                 tx_hash=native.tx_hash,
-                log_index=NATIVE_LOG_INDEX,
+                log_index=native.log_index,
                 block_number=native.block_number,
                 block_hash=native.block_hash,
                 to_address=native.to_address,
@@ -319,6 +329,7 @@ async def run_scan(
     reorg_depth: int,
     finality_depth: int = 0,
     start_block: int = 0,
+    watch_internal: bool = False,
 ) -> ScanReport:
     chain_id = client.chain_id
     head = client.block_number()
@@ -339,7 +350,9 @@ async def run_scan(
         cursor.last_finalized_block = finalized
     await session.flush()
 
-    recorded = await record_deposits(session, client, from_block=from_block, to_block=head)
+    recorded = await record_deposits(
+        session, client, from_block=from_block, to_block=head, watch_internal=watch_internal,
+    )
     credited = await confirm_and_credit(session, client, confirmations=confirmations)
     # The reorg window reaches confirmations (so a deposit that reorgs right after crediting is
     # caught) plus a finality margin, so a credited deposit stays reversible for a true finality

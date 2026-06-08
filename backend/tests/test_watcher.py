@@ -112,6 +112,92 @@ async def test_record_deposits_records_native_transfer(session: AsyncSession) ->
 
 
 @pytest.mark.asyncio
+async def test_record_deposits_records_internal_transfers_when_enabled(session: AsyncSession) -> None:
+    """#11: with internal-transfer watching on, native value delivered via a contract internal call
+    (carried in fetch_internal_transfers) is recorded like any other deposit."""
+    native, _token, alice = await _world(session)
+    client = FakeChainClient(
+        chain_id=CHAIN_ID,
+        head=200,
+        internal_transfers=[
+            NativeTransfer(
+                to_address=ALICE_ADDR,
+                value=3 * ONE_ETH,
+                tx_hash="0x" + "44" * 32,
+                block_number=100,
+                block_hash="0x" + "dd" * 32,
+                log_index=-2,
+            ),
+        ],
+    )
+    inserted = await watcher.record_deposits(
+        session, client, from_block=1, to_block=200, watch_internal=True,
+    )
+    assert inserted == 1
+    deposit = (await session.execute(select(OnchainDeposit))).scalar_one()
+    assert deposit.asset_id == native.id
+    assert deposit.user_id == alice.id
+    assert int(deposit.amount) == 3 * ONE_ETH
+    assert deposit.log_index == -2
+
+
+@pytest.mark.asyncio
+async def test_record_deposits_ignores_internal_transfers_when_disabled(session: AsyncSession) -> None:
+    await _world(session)
+    client = FakeChainClient(
+        chain_id=CHAIN_ID,
+        head=200,
+        internal_transfers=[
+            NativeTransfer(
+                to_address=ALICE_ADDR,
+                value=ONE_ETH,
+                tx_hash="0x" + "44" * 32,
+                block_number=100,
+                block_hash="0x" + "dd" * 32,
+                log_index=-2,
+            ),
+        ],
+    )
+    # Default (flag off): internal transfers are not scanned, so nothing is recorded.
+    inserted = await watcher.record_deposits(session, client, from_block=1, to_block=200)
+    assert inserted == 0
+    assert await _deposit_count(session) == 0
+
+
+@pytest.mark.asyncio
+async def test_internal_and_top_level_native_in_one_tx_are_both_recorded(session: AsyncSession) -> None:
+    """A top-level native send (log_index -1) and an internal transfer (log_index -2) in the SAME tx
+    must both record without colliding on the (chain, tx, log_index) dedup key."""
+    _native, _token, alice = await _world(session)
+    tx_hash = "0x" + "55" * 32
+    block_hash = "0x" + "ee" * 32
+    client = FakeChainClient(
+        chain_id=CHAIN_ID,
+        head=200,
+        native_transfers=[
+            NativeTransfer(
+                to_address=ALICE_ADDR, value=ONE_ETH, tx_hash=tx_hash, block_number=100, block_hash=block_hash,
+            ),
+        ],
+        internal_transfers=[
+            NativeTransfer(
+                to_address=ALICE_ADDR,
+                value=2 * ONE_ETH,
+                tx_hash=tx_hash,
+                block_number=100,
+                block_hash=block_hash,
+                log_index=-2,
+            ),
+        ],
+    )
+    inserted = await watcher.record_deposits(
+        session, client, from_block=1, to_block=200, watch_internal=True,
+    )
+    assert inserted == 2
+    assert await _deposit_count(session) == 2
+
+
+@pytest.mark.asyncio
 async def test_record_deposits_ignores_unknown_recipient(session: AsyncSession) -> None:
     await _world(session)
     client = FakeChainClient(

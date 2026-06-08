@@ -117,5 +117,14 @@ A third pass landed the withdrawer outbox:
   reconcile. The first `hot_wallet_nonces` row is created inside a SAVEPOINT with IntegrityError→reselect,
   so a concurrent first-withdrawal pass resolves to the winner's row instead of aborting (#9).
 
-**Only documented limitation remaining**: native deposits via contract internal transfers (#11, see
-`app/chain/client.py`) — direct EOA sends only until trace-based detection is added.
+A final pass closed the last gap:
+
+- **Internal-transfer deposits (#11)** — `fetch_internal_transfers` traces blocks via
+  `debug_traceBlockByNumber` (callTracer) and credits native value delivered to a deposit address
+  through a contract internal call, each with a distinct, stable negative `log_index` so it dedups
+  independently of the top-level send. It is **opt-in** (`WATCH_INTERNAL_TRANSFERS`, default off) and
+  gracefully no-ops when no provider exposes the trace namespace, so the normal scan is never slowed
+  or broken — enable it only against a trace-capable RPC (Alchemy/QuickNode-class). The trace parsing
+  is a pure, fully-unit-tested function (`internal_transfers_from_trace`).
+
+All 18 review findings are now addressed (17 fixed + tested; #11 shipped as an opt-in capability).

@@ -11,9 +11,72 @@ from app.chain.client import (
     address_to_topic,
     block_ranges,
     decode_erc20_transfer,
+    internal_transfers_from_trace,
     topic_to_address,
 )
-from app.chain.types import Erc20Transfer
+from app.chain.types import NATIVE_LOG_INDEX, Erc20Transfer
+
+DEPOSIT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+DEAD = "0x000000000000000000000000000000000000dEaD"
+
+
+def test_internal_transfers_from_trace_collects_value_calls_to_watched_addresses() -> None:
+    """#11: enumerate contract internal calls that move native value to a deposit address, with
+    stable, distinct negative log indices (so multiple internal transfers in one tx don't collide
+    and never clash with the top-level-native sentinel)."""
+    traced = [
+        {
+            "txHash": "0x" + "11" * 32,
+            "result": {
+                "type": "CALL",
+                "to": "0xC0ffee0000000000000000000000000000000000",  # a contract, not a deposit
+                "value": "0x0",
+                "calls": [
+                    {"type": "CALL", "to": DEAD, "value": "0x1", "calls": []},  # not watched
+                    {
+                        "type": "CALL",
+                        "to": DEPOSIT,
+                        "value": "0x64",  # 100 wei → deposit
+                        "calls": [
+                            {"type": "CALL", "to": DEPOSIT, "value": "0x5", "calls": []},  # nested 5 wei
+                        ],
+                    },
+                    {"type": "CALL", "to": DEPOSIT, "value": "0x0", "calls": []},  # zero value → skip
+                ],
+            },
+        },
+    ]
+    out = internal_transfers_from_trace(
+        traced, wanted_lower={DEPOSIT.lower()}, block_number=100, block_hash="0x" + "aa" * 32,
+    )
+    assert [t.value for t in out] == [100, 5]
+    assert all(t.to_address == DEPOSIT for t in out)  # checksummed
+    assert all(t.tx_hash == "0x" + "11" * 32 and t.block_number == 100 for t in out)
+    assert len({t.log_index for t in out}) == 2  # distinct
+    assert all(t.log_index < NATIVE_LOG_INDEX for t in out)  # below -1, never collides with top-level
+
+
+def test_internal_transfers_from_trace_skips_reverted_subtrees() -> None:
+    traced = [
+        {
+            "txHash": "0x" + "22" * 32,
+            "result": {
+                "calls": [
+                    {
+                        "type": "CALL",
+                        "to": DEPOSIT,
+                        "value": "0xa",
+                        "error": "execution reverted",  # this call (and its children) moved nothing
+                        "calls": [{"type": "CALL", "to": DEPOSIT, "value": "0xa", "calls": []}],
+                    },
+                ],
+            },
+        },
+    ]
+    out = internal_transfers_from_trace(
+        traced, wanted_lower={DEPOSIT.lower()}, block_number=1, block_hash="0x" + "bb" * 32,
+    )
+    assert out == []
 
 # Canonical keccak256("Transfer(address,address,uint256)") — shared by ERC-20 and ERC-721.
 EXPECTED_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"

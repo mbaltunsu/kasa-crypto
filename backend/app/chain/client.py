@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from app.chain.types import Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
+from app.chain.types import NATIVE_LOG_INDEX, Erc20Transfer, NativeTransfer, SignedTx, TxReceipt
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -112,6 +112,67 @@ def _to_hex(value: object) -> str:
         return "0x" + bytes(value).hex()
     msg = f"cannot hex-encode {type(value)!r}"
     raise TypeError(msg)
+
+
+def _hex_to_int(value: object) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value, 16) if value.startswith("0x") else int(value)
+    msg = f"cannot int-decode {type(value)!r}"
+    raise TypeError(msg)
+
+
+def _flatten_internal_calls(frame: dict[str, Any]) -> list[dict[str, Any]]:
+    """DFS over a callTracer frame's sub-calls (depth >= 1; the top frame is the tx itself, already
+    covered by the top-level native scan). A call that reverted moved no value, so it and its whole
+    subtree are skipped. Order is deterministic, giving each call a stable position."""
+    out: list[dict[str, Any]] = []
+
+    def walk(node: dict[str, Any]) -> None:
+        for child in node.get("calls") or []:
+            if child.get("error"):
+                continue
+            out.append(child)
+            walk(child)
+
+    walk(frame)
+    return out
+
+
+def internal_transfers_from_trace(
+    traced: list[dict[str, Any]],
+    *,
+    wanted_lower: set[str],
+    block_number: int,
+    block_hash: str,
+) -> list[NativeTransfer]:
+    """Pure: turn a `debug_traceBlockByNumber` (callTracer) block result into the native-value
+    transfers that internal calls delivered to a watched deposit address (finding #11). Each gets a
+    distinct negative log_index (per-tx call position), stable regardless of which addresses are
+    watched, so re-scans dedup cleanly and never collide with the top-level-native sentinel."""
+    transfers: list[NativeTransfer] = []
+    for entry in traced:
+        tx_hash = _to_hex(entry["txHash"])
+        result = entry.get("result") or {}
+        for position, call in enumerate(_flatten_internal_calls(result)):
+            to_address = call.get("to")
+            value = _hex_to_int(call.get("value"))
+            if to_address is None or value <= 0 or to_address.lower() not in wanted_lower:
+                continue
+            transfers.append(
+                NativeTransfer(
+                    to_address=_checksum(to_address),
+                    value=value,
+                    tx_hash=tx_hash,
+                    block_number=block_number,
+                    block_hash=block_hash,
+                    log_index=NATIVE_LOG_INDEX - 1 - position,
+                ),
+            )
+    return transfers
 
 
 def decode_erc20_transfer(
@@ -302,11 +363,11 @@ class ChainClient:
     ) -> list[NativeTransfer]:
         """Scan blocks for native value transfers whose top-level ``tx.to`` is a deposit address.
 
-        LIMITATION (finding #11): native value delivered via a contract internal call (a router,
-        multisend, smart-contract wallet, or some exchange withdrawals) has ``tx.to`` set to the
-        contract, not the deposit address, and is invisible here — capturing it requires trace APIs
-        (``trace_block``/``debug_traceTransaction``) or periodic balance reconciliation. Deposits
-        must therefore be direct EOA sends until trace-based detection is added.
+        This catches direct EOA sends only. Native value delivered via a contract internal call (a
+        router, multisend, smart-contract wallet, or some exchange withdrawals) has ``tx.to`` set to
+        the contract, not the deposit address, and is captured separately by
+        ``fetch_internal_transfers`` (opt-in via WATCH_INTERNAL_TRANSFERS, needs a trace-capable RPC
+        — finding #11).
         """
         if not to_addresses or from_block > to_block:
             return []
@@ -328,6 +389,48 @@ class ChainClient:
                             block_hash=block_hash,
                         ),
                     )
+        return transfers
+
+    def _trace_block(self, block_number: int) -> list[Any]:
+        def call(web3: Any) -> list[Any]:
+            response = web3.provider.make_request(
+                "debug_traceBlockByNumber", [hex(block_number), {"tracer": "callTracer"}],
+            )
+            return list(response["result"])  # KeyError if the node rejected the method → failover
+
+        return self._with_failover("trace_block", call)
+
+    def fetch_internal_transfers(
+        self,
+        *,
+        to_addresses: list[str],
+        from_block: int,
+        to_block: int,
+    ) -> list[NativeTransfer]:
+        """Native value delivered to a deposit address via a contract internal call (finding #11).
+
+        Requires a trace-capable RPC (`debug_traceBlockByNumber` / callTracer). If no provider
+        supports it, this returns [] (a graceful no-op) so the normal scan is unaffected — the
+        watcher only calls this when WATCH_INTERNAL_TRANSFERS is enabled. Tracing is one heavy call
+        per block, so leave it off unless pointed at a trace-capable endpoint.
+        """
+        if not to_addresses or from_block > to_block:
+            return []
+        wanted = {address.lower() for address in to_addresses}
+        transfers: list[NativeTransfer] = []
+        for block_no in range(from_block, to_block + 1):
+            try:
+                traced = self._trace_block(block_no)
+            except ChainRpcError:
+                return []  # trace namespace unavailable on every provider → no-op
+            block_hash = self.block_hash(block_no)
+            if block_hash is None:
+                continue
+            transfers.extend(
+                internal_transfers_from_trace(
+                    traced, wanted_lower=wanted, block_number=block_no, block_hash=block_hash,
+                ),
+            )
         return transfers
 
     def native_balance(self, address: str) -> int:

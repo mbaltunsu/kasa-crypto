@@ -72,6 +72,7 @@ async def _watcher_loop(ctx: WorkerContext, client: WatcherClient, scan_from: in
                     reorg_depth=ctx.settings.reorg_depth,
                     finality_depth=ctx.settings.reorg_finality_depth,
                     start_block=scan_from,
+                    watch_internal=ctx.settings.watch_internal_transfers,
                 )
                 await session.commit()
             if report.recorded or report.credited or report.orphaned:

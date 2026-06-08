@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # practical finality depth), not merely `reorg_depth` blocks (finding #13).
     reorg_finality_depth: int = Field(default=64, alias="REORG_FINALITY_DEPTH")
     block_chunk_size: int = Field(default=2_000, alias="BLOCK_CHUNK_SIZE")
+    # Opt-in: also index native deposits delivered via contract internal calls (#11). Needs a
+    # trace-capable RPC (debug_traceBlockByNumber); off by default and a no-op without one.
+    watch_internal_transfers: bool = Field(default=False, alias="WATCH_INTERNAL_TRANSFERS")
     watcher_poll_seconds: float = Field(default=10.0, alias="WATCHER_POLL_SECONDS")
     withdrawer_poll_seconds: float = Field(default=10.0, alias="WITHDRAWER_POLL_SECONDS")
     rpc_max_retries: int = Field(default=3, alias="RPC_MAX_RETRIES")

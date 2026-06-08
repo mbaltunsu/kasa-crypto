@@ -37,6 +37,7 @@ class FakeChainClient:
     block_hashes: dict[int, str] = field(default_factory=dict)
     erc20_transfers: list[Erc20Transfer] = field(default_factory=list)
     native_transfers: list[NativeTransfer] = field(default_factory=list)
+    internal_transfers: list[NativeTransfer] = field(default_factory=list)
     receipts: dict[str, TxReceipt] = field(default_factory=dict)
     nonces: dict[str, int] = field(default_factory=dict)
     latest_nonces: dict[str, int] = field(default_factory=dict)
@@ -83,6 +84,21 @@ class FakeChainClient:
         return [
             transfer
             for transfer in self.native_transfers
+            if transfer.to_address.lower() in recipients
+            and from_block <= transfer.block_number <= to_block
+        ]
+
+    def fetch_internal_transfers(
+        self,
+        *,
+        to_addresses: list[str],
+        from_block: int,
+        to_block: int,
+    ) -> list[NativeTransfer]:
+        recipients = {a.lower() for a in to_addresses}
+        return [
+            transfer
+            for transfer in self.internal_transfers
             if transfer.to_address.lower() in recipients
             and from_block <= transfer.block_number <= to_block
         ]

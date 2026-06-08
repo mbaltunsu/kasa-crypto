@@ -34,6 +34,9 @@ class NativeTransfer:
     tx_hash: str
     block_number: int
     block_hash: str
+    # NATIVE_LOG_INDEX (-1) for a top-level send; distinct negative indices for contract internal
+    # transfers, so multiple value moves in one tx get a stable, non-colliding dedup key (#11).
+    log_index: int = NATIVE_LOG_INDEX
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,15 @@ class WatcherClient(Protocol):
     ) -> list[Erc20Transfer]: ...
 
     def fetch_native_transfers(
+        self,
+        *,
+        to_addresses: list[str],
+        from_block: int,
+        to_block: int,
+    ) -> list[NativeTransfer]: ...
+
+    # Native value delivered via a contract internal call (opt-in; needs a trace-capable RPC). #11
+    def fetch_internal_transfers(
         self,
         *,
         to_addresses: list[str],
