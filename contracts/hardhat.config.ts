@@ -33,11 +33,9 @@ const config: HardhatUserConfig = {
       accounts,
     },
   },
+  // Etherscan V2 is multichain: a single Etherscan API key verifies Sepolia AND Avalanche Fuji.
   etherscan: {
-    apiKey: {
-      sepolia: process.env.ETHERSCAN_API_KEY ?? "",
-      avalancheFujiTestnet: process.env.SNOWTRACE_API_KEY ?? "",
-    },
+    apiKey: process.env.ETHERSCAN_API_KEY ?? "",
   },
 };
 

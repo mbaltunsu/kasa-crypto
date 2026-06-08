@@ -39,8 +39,14 @@ def test_native_has_no_address_and_symbols_never_0x_prefixed() -> None:
 
 def test_address_indices_and_urls() -> None:
     demo = erc20s_of_chain(11_155_111)[0]
-    assert demo.address == "0x0000000000000000000000000000000000000000"
-    assert asset_by_address(11_155_111, demo.address) is None
+    # DEMO is deployed → a real EIP-55 address that round-trips through the address index; the
+    # zero address is never indexed.
+    assert demo.address.startswith("0x")
+    assert len(demo.address) == 42
+    indexed = asset_by_address(11_155_111, demo.address)
+    assert indexed is not None
+    assert indexed.symbol == "DEMO"
+    assert asset_by_address(11_155_111, "0x0000000000000000000000000000000000000000") is None
     assert explorer_tx_url(11_155_111, "0xabc").endswith("/tx/0xabc")
     assert explorer_address_url(11_155_111, "0x0000000000000000000000000000000000000000").endswith(
         "/address/0x0000000000000000000000000000000000000000",
@@ -52,4 +58,4 @@ def test_address_indices_and_urls() -> None:
 def test_content_hash_stable() -> None:
     # MUST equal the TS `canonicalRows` sha256 (packages/shared check:parity) — this is the
     # cross-language registry parity gate. Do not change without changing the TS side identically.
-    assert content_hash() == "96fc833bc4b41b58c94e050d6fde8830721fc83bc5cae799db6535d758cf14cb"
+    assert content_hash() == "75e7d60fafa93d5dfede7664887f18623657dadb52d154d5bf9ed50bdb3a1b4a"

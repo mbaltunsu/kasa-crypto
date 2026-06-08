@@ -66,6 +66,7 @@ describe("registry", () => {
     const rows = canonicalRows();
     expect(rows).toBe(rows.split("\n").sort().join("\n"));
     expect(rows).toContain("11155111|native||ETH|18");
-    expect(rows).toContain("43113|erc721||KASA|0".replace("||", `|${ZERO_ADDRESS.toLowerCase()}|`));
+    // KASA on Fuji is deployed → its row carries the lowercased contract address.
+    expect(rows).toMatch(/43113\|erc721\|0x[0-9a-f]{40}\|KASA\|0/);
   });
 });
