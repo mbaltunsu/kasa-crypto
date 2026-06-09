@@ -308,7 +308,10 @@ async def run() -> None:
     for chain in list_chains():
         try:
             client = ChainClient.from_settings(chain.chain_id, settings)
-        except KeyError:
+        except (KeyError, ValueError):
+            # KeyError: chain absent from the RPC field map. ValueError: known chain but its RPC
+            # URL list resolved empty (e.g. RPC_HARDHAT="" on a testnet run). Either way the chain
+            # has no reachable endpoint — skip it rather than crash every other chain's loops.
             logger.warning("no RPC configured for chain %s; skipping", chain.chain_id)
             continue
         tasks.append(asyncio.create_task(_watcher_loop(ctx, client, start_block(chain))))

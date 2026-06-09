@@ -70,11 +70,14 @@ async def gas_balances(
     hot_wallet_address = hot_wallet_account(settings.master_mnemonic).address
     chains: list[GasChainBalance] = []
     for chain in list_chains():
+        try:
+            client = ChainClient.from_settings(chain.chain_id, settings)
+        except (KeyError, ValueError):
+            # Chain not configured in this deployment (RPC unmapped or resolved empty) — omit it.
+            continue
         asset = native_asset(chain.chain_id)
         try:
-            balance = ChainClient.from_settings(chain.chain_id, settings).native_balance(
-                hot_wallet_address,
-            )
+            balance = client.native_balance(hot_wallet_address)
             status = _gas_status(balance, settings)
         except ChainRpcError:
             balance = 0
