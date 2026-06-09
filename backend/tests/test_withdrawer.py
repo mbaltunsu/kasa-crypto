@@ -317,14 +317,105 @@ async def test_confirm_reconciles_dropped_tx_when_nonce_advanced(session: AsyncS
     )
     # Our tx (nonce 0) never mined and the *mined* nonce has moved past it -> the tx was dropped.
     client.latest_nonces[HOT_ADDR.lower()] = 1  # mined nonce advanced past our request.nonce 0
+    first_unmined_head = 20
+    client.head = first_unmined_head
 
     settled = await withdrawer.confirm_broadcast(
         session, client, confirmations=5, hot_wallet_address=HOT_ADDR,
     )
     assert settled == 0
     await session.refresh(request)
+    assert request.status == WithdrawalStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+    assert await ledger.available_balance(session, user=user, asset=asset) == 0
+
+    client.head = 25
+    settled = await withdrawer.confirm_broadcast(
+        session, client, confirmations=5, hot_wallet_address=HOT_ADDR,
+    )
+    assert settled == 0
+    await session.refresh(request)
     assert request.status == WithdrawalStatus.FAILED.value
+    assert request.error == "transaction dropped (nonce superseded)"
     # Dropped -> reservation returned to the user.
+    assert await ledger.available_balance(session, user=user, asset=asset) == ONE_ETH
+
+
+@pytest.mark.asyncio
+async def test_confirm_does_not_reverse_mined_tx_with_lagging_receipt(
+    session: AsyncSession,
+) -> None:
+    client, request, asset, user = await _broadcast_one(session)
+    assert request.tx_hash is not None
+    client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 20
+    client.head = first_unmined_head
+
+    settled = await withdrawer.confirm_broadcast(
+        session, client, confirmations=5, hot_wallet_address=HOT_ADDR,
+    )
+
+    assert settled == 0
+    await session.refresh(request)
+    assert request.status == WithdrawalStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+    assert await ledger.available_balance(session, user=user, asset=asset) == 0
+    reserved = await ledger.get_or_create_account(
+        session, asset=asset, name=ledger.WITHDRAWALS_RESERVED_ACCOUNT, owner_type="system",
+    )
+    assert await _account_balance(session, reserved.id) == ONE_ETH
+
+    block_hash = "0x" + "ab" * 32
+    client.receipts[request.tx_hash] = TxReceipt(
+        tx_hash=request.tx_hash,
+        status=1,
+        block_number=21,
+        block_hash=block_hash,
+    )
+    client.head = 30
+    client.block_hashes[21] = block_hash
+
+    settled = await withdrawer.confirm_broadcast(
+        session, client, confirmations=5, hot_wallet_address=HOT_ADDR,
+    )
+
+    assert settled == 1
+    await session.refresh(request)
+    assert request.status == WithdrawalStatus.CONFIRMED.value
+    cleared_marker: int | None = request.unmined_since_block
+    assert cleared_marker is None
+    assert await ledger.available_balance(session, user=user, asset=asset) == 0
+    assert await _account_balance(session, reserved.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_confirm_reverses_dropped_tx_after_unmined_grace_window(
+    session: AsyncSession,
+) -> None:
+    client, request, asset, user = await _broadcast_one(session)
+    client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 40
+    client.head = first_unmined_head
+
+    settled = await withdrawer.confirm_broadcast(
+        session, client, confirmations=6, hot_wallet_address=HOT_ADDR,
+    )
+
+    assert settled == 0
+    await session.refresh(request)
+    assert request.status == WithdrawalStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+    assert await ledger.available_balance(session, user=user, asset=asset) == 0
+
+    client.head = 46
+    settled = await withdrawer.confirm_broadcast(
+        session, client, confirmations=6, hot_wallet_address=HOT_ADDR,
+    )
+
+    assert settled == 0
+    await session.refresh(request)
+    assert request.status == WithdrawalStatus.FAILED.value
+    assert request.error == "transaction dropped (nonce superseded)"
     assert await ledger.available_balance(session, user=user, asset=asset) == ONE_ETH
 
 

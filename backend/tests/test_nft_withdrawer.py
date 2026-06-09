@@ -149,11 +149,133 @@ async def test_dropped_superseded_nonce_fails_and_releases_holding(
     )
     request = await _request(session)
     client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 20
+    client.head = first_unmined_head
 
     confirmed = await nft_withdrawer.confirm_withdrawals(
         session,
         client,
         confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(request)
+    await session.refresh(holding)
+    assert request.status == NftWithdrawalStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+    assert holding.status == NftHoldingStatus.WITHDRAWING.value
+
+    client.head = 25
+    confirmed = await nft_withdrawer.confirm_withdrawals(
+        session,
+        client,
+        confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(request)
+    await session.refresh(holding)
+    assert request.status == NftWithdrawalStatus.FAILED.value
+    assert request.error == "transaction dropped (nonce superseded)"
+    assert holding.status == NftHoldingStatus.HELD.value
+
+
+@pytest.mark.asyncio
+async def test_lagging_receipt_after_mined_nft_withdrawal_is_not_released(
+    session: AsyncSession,
+) -> None:
+    holding = await _holding(session)
+    client = FakeChainClient(chain_id=CHAIN_ID, nonces={HOT_ADDR.lower(): 0})
+    await nft_withdrawer.broadcast_pending_withdrawals(
+        session,
+        client,
+        hot_wallet_key=HOT_KEY,
+        hot_wallet_address=HOT_ADDR,
+    )
+    request = await _request(session)
+    assert request.tx_hash is not None
+    client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 30
+    client.head = first_unmined_head
+
+    confirmed = await nft_withdrawer.confirm_withdrawals(
+        session,
+        client,
+        confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(request)
+    await session.refresh(holding)
+    assert request.status == NftWithdrawalStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+    assert holding.status == NftHoldingStatus.WITHDRAWING.value
+
+    block_hash = "0x" + "ab" * 32
+    client.receipts[request.tx_hash] = TxReceipt(
+        tx_hash=request.tx_hash,
+        status=1,
+        block_number=31,
+        block_hash=block_hash,
+    )
+    client.head = 40
+    client.block_hashes[31] = block_hash
+
+    confirmed = await nft_withdrawer.confirm_withdrawals(
+        session,
+        client,
+        confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 1
+    await session.refresh(request)
+    await session.refresh(holding)
+    assert request.status == NftWithdrawalStatus.CONFIRMED.value
+    cleared_marker: int | None = request.unmined_since_block
+    assert cleared_marker is None
+    assert holding.status == NftHoldingStatus.WITHDRAWN.value
+
+
+@pytest.mark.asyncio
+async def test_dropped_nft_withdrawal_releases_after_unmined_grace_window(
+    session: AsyncSession,
+) -> None:
+    holding = await _holding(session)
+    client = FakeChainClient(chain_id=CHAIN_ID, nonces={HOT_ADDR.lower(): 0})
+    await nft_withdrawer.broadcast_pending_withdrawals(
+        session,
+        client,
+        hot_wallet_key=HOT_KEY,
+        hot_wallet_address=HOT_ADDR,
+    )
+    request = await _request(session)
+    client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 50
+    client.head = first_unmined_head
+
+    confirmed = await nft_withdrawer.confirm_withdrawals(
+        session,
+        client,
+        confirmations=6,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(request)
+    await session.refresh(holding)
+    assert request.status == NftWithdrawalStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+    assert holding.status == NftHoldingStatus.WITHDRAWING.value
+
+    client.head = 56
+    confirmed = await nft_withdrawer.confirm_withdrawals(
+        session,
+        client,
+        confirmations=6,
         hot_wallet_address=HOT_ADDR,
     )
 

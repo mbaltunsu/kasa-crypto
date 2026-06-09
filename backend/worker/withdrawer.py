@@ -263,8 +263,16 @@ async def confirm_broadcast(
             continue
         receipt = client.get_receipt(request.tx_hash)
         if receipt is None:
-            await _reconcile_unmined(session, client, request, hot_wallet_address)
+            await _reconcile_unmined(
+                session,
+                client,
+                request,
+                hot_wallet_address,
+                head=head,
+                confirmations=confirmations,
+            )
             continue
+        request.unmined_since_block = None
         # Do not act on a receipt until it is buried under `confirmations` blocks AND its block is
         # still canonical (finding #7). A fresh or reorged-out receipt is left BROADCAST and
         # re-evaluated next pass — so a payout reorged away within the confirmation window is never
@@ -284,16 +292,27 @@ async def confirm_broadcast(
     return settled
 
 
-async def _reconcile_unmined(
+async def _reconcile_unmined(  # noqa: PLR0913
     session: AsyncSession,
     client: SenderClient,
     request: WithdrawalRequest,
     hot_wallet_address: str | None,
+    *,
+    head: int,
+    confirmations: int,
 ) -> None:
-    """A broadcast tx with no receipt: if the *mined* nonce has advanced past ours, our tx was
-    dropped/replaced (a different tx filled the slot), so refund the reservation. Uses the mined
-    (not pending) nonce so a still-pending tx is never wrongly reversed."""
+    """A broadcast tx with no receipt may be pending, dropped, or freshly mined on a lagging RPC.
+
+    Only reverse after the mined nonce has advanced past ours and the receipt stays absent for the
+    same confirmation depth used by settlement. A later receipt clears the marker.
+    """
     if hot_wallet_address is None or request.nonce is None:
         return
-    if client.latest_nonce(hot_wallet_address) > request.nonce:
+    if client.latest_nonce(hot_wallet_address) <= request.nonce:
+        request.unmined_since_block = None
+        return
+    if request.unmined_since_block is None:
+        request.unmined_since_block = head
+        return
+    if head - request.unmined_since_block >= confirmations:
         await _reverse_reservation(session, request, "transaction dropped (nonce superseded)")

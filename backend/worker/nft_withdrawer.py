@@ -163,8 +163,16 @@ async def confirm_withdrawals(
             continue
         receipt = client.get_receipt(request.tx_hash)
         if receipt is None:
-            await _reconcile_unmined(session, client, request, hot_wallet_address)
+            await _reconcile_unmined(
+                session,
+                client,
+                request,
+                hot_wallet_address,
+                head=head,
+                confirmations=confirmations,
+            )
             continue
+        request.unmined_since_block = None
         if head - receipt.block_number < confirmations:
             continue
         canonical = client.block_hash(receipt.block_number)
@@ -198,13 +206,23 @@ async def _fail_and_release(
     request.error = error
 
 
-async def _reconcile_unmined(
+async def _reconcile_unmined(  # noqa: PLR0913
     session: AsyncSession,
     client: SenderClient,
     request: NftWithdrawalRequest,
     hot_wallet_address: str | None,
+    *,
+    head: int,
+    confirmations: int,
 ) -> None:
+    """Mark a receipt-absent tx dropped only after nonce advancement persists for confirmations."""
     if hot_wallet_address is None or request.nonce is None:
         return
-    if client.latest_nonce(hot_wallet_address) > request.nonce:
+    if client.latest_nonce(hot_wallet_address) <= request.nonce:
+        request.unmined_since_block = None
+        return
+    if request.unmined_since_block is None:
+        request.unmined_since_block = head
+        return
+    if head - request.unmined_since_block >= confirmations:
         await _fail_and_release(session, request, "transaction dropped (nonce superseded)")

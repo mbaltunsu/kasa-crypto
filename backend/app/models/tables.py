@@ -330,6 +330,7 @@ class NftWithdrawalRequest(Base):
     to_address: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    unmined_since_block: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
     tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -365,6 +366,7 @@ class WithdrawalRequest(Base):
     # after a crash is idempotent — same nonce, same hash — no payout can be sent twice (#3).
     signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
     nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    unmined_since_block: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
