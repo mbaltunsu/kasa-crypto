@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowDownToLine,
   ArrowRightLeft,
@@ -14,7 +14,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/cn";
+import { setAccessToken } from "@/api/client";
+import { useMe } from "@/api/queries";
 
 interface NavItem {
   href: string;
@@ -34,7 +37,18 @@ const PRIMARY: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const me = useMe();
+  const email = me.data?.email ?? "—";
+  const role = me.data?.role ?? "";
+  const initials = email.includes("@") ? email.slice(0, 2).toUpperCase() : "··";
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const signOut = () => {
+    setAccessToken(null);
+    queryClient.clear();
+    router.replace("/login");
+  };
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-[#111827]/60 md:flex">
@@ -86,13 +100,19 @@ export function Sidebar() {
       <div className="border-t border-border p-3">
         <div className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface">
           <span className="grid h-8 w-8 place-items-center rounded-full bg-tech/20 text-xs font-semibold text-tech">
-            BA
+            {initials}
           </span>
           <div className="min-w-0">
-            <div className="truncate text-xs font-medium">bengican@gmail.com</div>
-            <div className="text-[11px] text-muted">user</div>
+            <div className="truncate text-xs font-medium">{email}</div>
+            <div className="text-[11px] text-muted">{role}</div>
           </div>
-          <button type="button" aria-label="Sign out" className="ml-auto text-muted hover:text-ink">
+          <button
+            type="button"
+            onClick={signOut}
+            aria-label="Sign out"
+            title="Sign out"
+            className="ml-auto rounded-md p-1 text-muted hover:bg-surface hover:text-ink"
+          >
             <LogOut className="h-4 w-4" />
           </button>
         </div>
