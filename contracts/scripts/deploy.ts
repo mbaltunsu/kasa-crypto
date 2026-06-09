@@ -24,11 +24,19 @@ async function blockOf(tx: { hash: string } | null): Promise<number> {
 async function main(): Promise<void> {
   const [deployer] = await ethers.getSigners();
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
-  console.log(`Deploying to chainId ${chainId} (${network.name}) as ${deployer.address}`);
+  // The contract owner (= service hot wallet) signs onlyOwner mints and holds the DEMO faucet
+  // supply. Defaults to the deployer (local/dev); set HOT_WALLET_OWNER to the custody wallet on
+  // testnets so the worker's mint and the faucet sends work from the hot wallet.
+  const owner = process.env.HOT_WALLET_OWNER
+    ? ethers.getAddress(process.env.HOT_WALLET_OWNER)
+    : deployer.address;
+  console.log(
+    `Deploying to chainId ${chainId} (${network.name}) as ${deployer.address}; owner=${owner}`,
+  );
 
-  const token = await ethers.deployContract("DemoToken", [deployer.address]);
+  const token = await ethers.deployContract("DemoToken", [owner]);
   await token.waitForDeployment();
-  const nft = await ethers.deployContract("DemoCollectible", [deployer.address]);
+  const nft = await ethers.deployContract("DemoCollectible", [owner]);
   await nft.waitForDeployment();
 
   const tokenAddr = await token.getAddress(); // ethers returns EIP-55 checksummed

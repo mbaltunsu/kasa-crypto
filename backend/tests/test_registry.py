@@ -58,4 +58,4 @@ def test_address_indices_and_urls() -> None:
 def test_content_hash_stable() -> None:
     # MUST equal the TS `canonicalRows` sha256 (packages/shared check:parity) — this is the
     # cross-language registry parity gate. Do not change without changing the TS side identically.
-    assert content_hash() == "75e7d60fafa93d5dfede7664887f18623657dadb52d154d5bf9ed50bdb3a1b4a"
+    assert content_hash() == "a55deaff545faff9dc360fb642230d3e1bab844237ff730a8c3e67974d2826b4"

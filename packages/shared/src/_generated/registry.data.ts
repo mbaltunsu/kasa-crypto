@@ -25,16 +25,16 @@ export const registryBundle = {
           "symbol": "DEMO",
           "name": "Demo Token",
           "decimals": 18,
-          "address": "0x15fe2D2D221F2B3Ee96D230d50B496Ab5F1b8B3E",
-          "deploymentBlock": 11015617
+          "address": "0x7eaD24461F04330365b6064Dd441E7910418Ba97",
+          "deploymentBlock": 11019620
         },
         {
           "type": "erc721",
           "symbol": "KASA",
           "name": "Kasa Collectible",
           "decimals": 0,
-          "address": "0x88F67A2EbD4C342496d0A477EF58F3a89BCF95F2",
-          "deploymentBlock": 11015618
+          "address": "0x8168A39544C6b9bcc49523B6dBbA536C64bC06C3",
+          "deploymentBlock": 11019621
         }
       ]
     },
@@ -59,16 +59,16 @@ export const registryBundle = {
           "symbol": "DEMO",
           "name": "Demo Token",
           "decimals": 18,
-          "address": "0x4dBD859993952132Be0499CEF34419fc1A604867",
-          "deploymentBlock": 56110521
+          "address": "0x7B39AF42c4E4cd39F13869B35C9b4a96ED1AeF26",
+          "deploymentBlock": 56124677
         },
         {
           "type": "erc721",
           "symbol": "KASA",
           "name": "Kasa Collectible",
           "decimals": 0,
-          "address": "0xF83a0306A284A9AF72464D58b63501a55c846873",
-          "deploymentBlock": 56110523
+          "address": "0xc6F0820431c42e0411120c156660222fD09Fb134",
+          "deploymentBlock": 56124678
         }
       ]
     },

@@ -19,16 +19,16 @@
       "symbol": "DEMO",
       "name": "Demo Token",
       "decimals": 18,
-      "address": "0x15fe2D2D221F2B3Ee96D230d50B496Ab5F1b8B3E",
-      "deploymentBlock": 11015617
+      "address": "0x7eaD24461F04330365b6064Dd441E7910418Ba97",
+      "deploymentBlock": 11019620
     },
     {
       "type": "erc721",
       "symbol": "KASA",
       "name": "Kasa Collectible",
       "decimals": 0,
-      "address": "0x88F67A2EbD4C342496d0A477EF58F3a89BCF95F2",
-      "deploymentBlock": 11015618
+      "address": "0x8168A39544C6b9bcc49523B6dBbA536C64bC06C3",
+      "deploymentBlock": 11019621
     }
   ]
 }

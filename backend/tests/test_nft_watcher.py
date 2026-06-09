@@ -2,6 +2,7 @@ import pytest
 
 pytest.importorskip("aiosqlite")
 
+from kasa_shared.registry import nfts_of_chain
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +14,7 @@ from worker import nft_watcher
 
 CHAIN_ID = 11_155_111
 ALICE_ADDR = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-CONTRACT = "0x88F67A2EbD4C342496d0A477EF58F3a89BCF95F2"
+CONTRACT = nfts_of_chain(CHAIN_ID)[0].address  # registry-derived (survives redeploys)
 SENDER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 COLLECTIBLE_ID = "42"
 LOG_INDEX = 3
