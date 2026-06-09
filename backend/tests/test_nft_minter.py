@@ -51,13 +51,19 @@ async def _mint_request(session: AsyncSession, user: User) -> NftMintRequest:
     return request
 
 
-def _mint_receipt(tx_hash: str, *, token_id: int, status: int = 1) -> TxReceipt:
+def _mint_receipt(
+    tx_hash: str,
+    *,
+    token_id: int,
+    status: int = 1,
+    block_number: int = 10,
+) -> TxReceipt:
     block_hash = "0x" + "ab" * 32
     token_topic = "0x" + f"{token_id:064x}"
     return TxReceipt(
         tx_hash=tx_hash,
         status=status,
-        block_number=10,
+        block_number=block_number,
         block_hash=block_hash,
         logs=(
             TxLog(
@@ -162,10 +168,123 @@ async def test_mint_dropped_superseded_nonce_fails_request(session: AsyncSession
         session, client, hot_wallet_key=HOT_KEY, hot_wallet_address=HOT_ADDR,
     )
     client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 20
+    client.head = first_unmined_head
 
     confirmed = await nft_minter.confirm_mints(
         session, client, confirmations=5, hot_wallet_address=HOT_ADDR,
     )
+    assert confirmed == 0
+    await session.refresh(request)
+    assert request.status == NftMintStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+
+    client.head = 25
+    confirmed = await nft_minter.confirm_mints(
+        session, client, confirmations=5, hot_wallet_address=HOT_ADDR,
+    )
+    assert confirmed == 0
+    await session.refresh(request)
+    assert request.status == NftMintStatus.FAILED.value
+    assert request.error == "transaction dropped (nonce superseded)"
+
+
+@pytest.mark.asyncio
+async def test_lagging_receipt_after_mined_mint_is_not_failed(
+    session: AsyncSession,
+) -> None:
+    user = await seed_user(session, email="a@example.com", hd_index=1)
+    request = await _mint_request(session, user)
+    client = FakeChainClient(chain_id=CHAIN_ID, nonces={HOT_ADDR.lower(): 0})
+    await nft_minter.broadcast_pending_mints(
+        session,
+        client,
+        hot_wallet_key=HOT_KEY,
+        hot_wallet_address=HOT_ADDR,
+    )
+    await session.refresh(request)
+    assert request.tx_hash is not None
+    client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 30
+    client.head = first_unmined_head
+
+    confirmed = await nft_minter.confirm_mints(
+        session,
+        client,
+        confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(request)
+    assert request.status == NftMintStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+
+    block_hash = "0x" + "ab" * 32
+    client.receipts[request.tx_hash] = _mint_receipt(
+        request.tx_hash,
+        token_id=MINT_TOKEN_ID,
+        block_number=31,
+    )
+    client.head = 40
+    client.block_hashes[31] = block_hash
+
+    confirmed = await nft_minter.confirm_mints(
+        session,
+        client,
+        confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 1
+    await session.refresh(request)
+    assert request.status == NftMintStatus.CONFIRMED.value
+    assert request.token_id == MINTED_ID_TEXT
+    cleared_marker: int | None = request.unmined_since_block
+    assert cleared_marker is None
+    holding = (
+        await session.execute(select(NftHolding).where(NftHolding.token_id == MINTED_ID_TEXT))
+    ).scalar_one()
+    assert holding.user_id == user.id
+    assert holding.contract == CONTRACT
+    assert holding.status == NftHoldingStatus.HELD.value
+
+
+@pytest.mark.asyncio
+async def test_dropped_mint_fails_after_unmined_grace_window(session: AsyncSession) -> None:
+    user = await seed_user(session, email="a@example.com", hd_index=1)
+    request = await _mint_request(session, user)
+    client = FakeChainClient(chain_id=CHAIN_ID, nonces={HOT_ADDR.lower(): 0})
+    await nft_minter.broadcast_pending_mints(
+        session,
+        client,
+        hot_wallet_key=HOT_KEY,
+        hot_wallet_address=HOT_ADDR,
+    )
+    client.latest_nonces[HOT_ADDR.lower()] = 1
+    first_unmined_head = 50
+    client.head = first_unmined_head
+
+    confirmed = await nft_minter.confirm_mints(
+        session,
+        client,
+        confirmations=6,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(request)
+    assert request.status == NftMintStatus.BROADCAST.value
+    assert request.unmined_since_block == first_unmined_head
+
+    client.head = 56
+    confirmed = await nft_minter.confirm_mints(
+        session,
+        client,
+        confirmations=6,
+        hot_wallet_address=HOT_ADDR,
+    )
+
     assert confirmed == 0
     await session.refresh(request)
     assert request.status == NftMintStatus.FAILED.value

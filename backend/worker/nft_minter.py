@@ -173,8 +173,15 @@ async def confirm_mints(
             continue
         receipt = client.get_receipt(request.tx_hash)
         if receipt is None:
-            await _reconcile_unmined(client, request, hot_wallet_address)
+            await _reconcile_unmined(
+                client,
+                request,
+                hot_wallet_address,
+                head=head,
+                confirmations=confirmations,
+            )
             continue
+        request.unmined_since_block = None
         if head - receipt.block_number < confirmations:
             continue
         canonical = client.block_hash(receipt.block_number)
@@ -235,9 +242,23 @@ async def _reconcile_unmined(
     client: SenderClient,
     request: NftMintRequest,
     hot_wallet_address: str | None,
+    *,
+    head: int,
+    confirmations: int,
 ) -> None:
+    """Mark a receipt-absent mint dropped only after nonce advancement persists.
+
+    A nonce advance can also mean a freshly mined tx whose receipt is lagging, so fail only
+    after the receipt stays absent for the confirmation depth.
+    """
     if hot_wallet_address is None or request.nonce is None:
         return
-    if client.latest_nonce(hot_wallet_address) > request.nonce:
+    if client.latest_nonce(hot_wallet_address) <= request.nonce:
+        request.unmined_since_block = None
+        return
+    if request.unmined_since_block is None:
+        request.unmined_since_block = head
+        return
+    if head - request.unmined_since_block >= confirmations:
         request.status = NftMintStatus.FAILED.value
         request.error = "transaction dropped (nonce superseded)"

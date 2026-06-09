@@ -299,6 +299,7 @@ class NftMintRequest(Base):
     to_address: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    unmined_since_block: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
     tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_id: Mapped[str | None] = mapped_column(Text, nullable=True)
