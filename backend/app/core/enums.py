@@ -66,6 +66,13 @@ class NftWithdrawalStatus(StrEnum):
     FAILED = "failed"
 
 
+class GasStatus(StrEnum):
+    OK = "ok"
+    LOW = "low"
+    CRITICAL = "critical"
+    UNKNOWN = "unknown"
+
+
 class LedgerEntryType(StrEnum):
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"

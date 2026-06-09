@@ -25,9 +25,11 @@ from app.schemas.admin import ReserveAssetResponse, ReservesResponse
 from app.schemas.nft import AdminMintNftResponse
 from app.services import ledger
 from app.services.errors import raise_api_error
+from app.services.rate_limit import enforce_rate_limit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -204,9 +206,10 @@ def _registry_nft_contract(chain_id: int) -> str:
     return _checksum_contract_address(asset.address)
 
 
-async def mint_nft(
+async def mint_nft(  # noqa: PLR0913
     session: AsyncSession,
     *,
+    admin_user_id: UUID,
     user_email: str,
     chain_id: int,
     onchain: bool,
@@ -214,6 +217,8 @@ async def mint_nft(
 ) -> AdminMintNftResponse:
     if not onchain:
         return await mint_nft_stub(session, user_email=user_email, chain_id=chain_id)
+
+    await enforce_rate_limit(session, action="nft_mint", user_id=admin_user_id)
 
     user = (
         await session.execute(select(User).where(User.email == user_email.strip().lower()))

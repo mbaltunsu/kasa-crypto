@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/admin/gas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gas Balances */
+        get: operations["gas_balances_api_v1_admin_gas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/mint-nft": {
         parameters: {
             query?: never;
@@ -526,6 +543,28 @@ export interface components {
             /** Tx Hash */
             tx_hash: string;
         };
+        /** GasBalanceResponse */
+        GasBalanceResponse: {
+            /** Chains */
+            chains: components["schemas"]["GasChainBalance"][];
+        };
+        /** GasChainBalance */
+        GasChainBalance: {
+            /** Balance */
+            balance: string;
+            /** Chain Id */
+            chain_id: number;
+            /** Decimals */
+            decimals: number;
+            status: components["schemas"]["GasStatus"];
+            /** Symbol */
+            symbol: string;
+        };
+        /**
+         * GasStatus
+         * @enum {string}
+         */
+        GasStatus: "ok" | "low" | "critical" | "unknown";
         /**
          * LedgerEntryType
          * @enum {string}
@@ -780,6 +819,107 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    gas_balances_api_v1_admin_gas_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GasBalanceResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     mint_nft_api_v1_admin_mint_nft_post: {
         parameters: {
             query?: never;

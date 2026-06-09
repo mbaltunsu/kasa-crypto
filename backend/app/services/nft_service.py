@@ -18,6 +18,7 @@ from app.schemas.nft import (
 from app.services import nft_art
 from app.services.errors import raise_api_error
 from app.services.idempotency import scoped_idempotency_key
+from app.services.rate_limit import enforce_rate_limit
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -137,6 +138,7 @@ async def request_withdrawal(
     to_address: str,
     idempotency_key: str,
 ) -> NftWithdrawalCreateResponse:
+    await enforce_rate_limit(session, action="nft_withdrawal", user_id=user.id)
     try:
         to_address = to_checksum_address_strict(to_address)
     except InvalidAddressError as exc:

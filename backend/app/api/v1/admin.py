@@ -2,16 +2,18 @@ from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from kasa_shared.registry import list_chains, native_asset
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import require_admin
-from app.chain.client import ChainClient
+from app.chain.client import ChainClient, ChainRpcError
 from app.chain.types import BalanceClient
 from app.core.config import Settings, get_settings
+from app.core.enums import GasStatus
 from app.core.hd_wallet import hot_wallet_account
 from app.db import get_db
 from app.models.tables import User
-from app.schemas.admin import ReservesResponse
+from app.schemas.admin import GasBalanceResponse, GasChainBalance, ReservesResponse
 from app.schemas.nft import AdminMintNftRequest, AdminMintNftResponse
 from app.schemas.withdrawal import WithdrawalPageResponse
 from app.services import admin_service
@@ -36,6 +38,14 @@ def _cursor_offset(cursor: str | None) -> int:
         return 0
 
 
+def _gas_status(balance: int, settings: Settings) -> GasStatus:
+    if balance < settings.gas_critical_wei:
+        return GasStatus.CRITICAL
+    if balance < settings.gas_warn_wei:
+        return GasStatus.LOW
+    return GasStatus.OK
+
+
 @router.get("/reserves")
 async def reserve_report(
     _admin: Annotated[User, Depends(require_admin)],
@@ -50,6 +60,35 @@ async def reserve_report(
         hot_wallet_address=hot_wallet_address,
         balance_factory=_balance_factory(settings),
     )
+
+
+@router.get("/gas")
+async def gas_balances(
+    _admin: Annotated[User, Depends(require_admin)],
+) -> GasBalanceResponse:
+    settings = get_settings()
+    hot_wallet_address = hot_wallet_account(settings.master_mnemonic).address
+    chains: list[GasChainBalance] = []
+    for chain in list_chains():
+        asset = native_asset(chain.chain_id)
+        try:
+            balance = ChainClient.from_settings(chain.chain_id, settings).native_balance(
+                hot_wallet_address,
+            )
+            status = _gas_status(balance, settings)
+        except ChainRpcError:
+            balance = 0
+            status = GasStatus.UNKNOWN
+        chains.append(
+            GasChainBalance(
+                chain_id=chain.chain_id,
+                symbol=asset.symbol,
+                decimals=asset.decimals,
+                balance=balance,
+                status=status,
+            ),
+        )
+    return GasBalanceResponse(chains=chains)
 
 
 @router.get("/withdrawals")
@@ -71,7 +110,7 @@ async def admin_withdrawals(
 @router.post("/mint-nft")
 async def mint_nft(
     request: AdminMintNftRequest,
-    _admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> AdminMintNftResponse:
     settings = get_settings()
@@ -82,6 +121,7 @@ async def mint_nft(
     )
     response = await admin_service.mint_nft(
         session,
+        admin_user_id=admin.id,
         user_email=request.user_email,
         chain_id=request.chain_id,
         onchain=onchain,

@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.core.enums import GasStatus
 from app.types.amount import BaseUnit, UnsignedBaseUnit
 
 
@@ -14,3 +15,15 @@ class ReserveAssetResponse(BaseModel):
 
 class ReservesResponse(BaseModel):
     assets: list[ReserveAssetResponse]
+
+
+class GasChainBalance(BaseModel):
+    chain_id: int
+    symbol: str
+    decimals: int
+    balance: BaseUnit
+    status: GasStatus
+
+
+class GasBalanceResponse(BaseModel):
+    chains: list[GasChainBalance]

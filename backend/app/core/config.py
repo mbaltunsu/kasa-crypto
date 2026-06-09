@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Admin NFT minting uses the real on-chain outbox only when explicitly enabled. Otherwise it
     # writes simulated holdings directly so the demo works offline.
     mint_onchain: bool = Field(default=False, alias="MINT_ONCHAIN")
+    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
+    gas_warn_wei: int = Field(default=20_000_000_000_000_000, alias="GAS_WARN_WEI")
+    gas_critical_wei: int = Field(default=5_000_000_000_000_000, alias="GAS_CRITICAL_WEI")
 
     # Demo convenience: seed a known login at startup (off by default; the login form prefills it).
     seed_demo_user: bool = Field(default=False, alias="SEED_DEMO_USER")

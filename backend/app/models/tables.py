@@ -398,3 +398,19 @@ class HotWalletNonce(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+class RateLimitEvent(Base):
+    __tablename__ = "rate_limit_events"
+    __table_args__ = (
+        Index("ix_rate_limit_events_action_scope_created_at", "action", "scope_key", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scope_key: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

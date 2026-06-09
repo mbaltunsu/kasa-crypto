@@ -422,6 +422,65 @@
         "title": "FaucetResponse",
         "type": "object"
       },
+      "GasBalanceResponse": {
+        "properties": {
+          "chains": {
+            "items": {
+              "$ref": "#/components/schemas/GasChainBalance"
+            },
+            "title": "Chains",
+            "type": "array"
+          }
+        },
+        "required": [
+          "chains"
+        ],
+        "title": "GasBalanceResponse",
+        "type": "object"
+      },
+      "GasChainBalance": {
+        "properties": {
+          "balance": {
+            "pattern": "^-?(0|[1-9]\\d*)$",
+            "title": "Balance",
+            "type": "string"
+          },
+          "chain_id": {
+            "title": "Chain Id",
+            "type": "integer"
+          },
+          "decimals": {
+            "title": "Decimals",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/GasStatus"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chain_id",
+          "symbol",
+          "decimals",
+          "balance",
+          "status"
+        ],
+        "title": "GasChainBalance",
+        "type": "object"
+      },
+      "GasStatus": {
+        "enum": [
+          "ok",
+          "low",
+          "critical",
+          "unknown"
+        ],
+        "title": "GasStatus",
+        "type": "string"
+      },
       "LedgerEntryType": {
         "enum": [
           "deposit",
@@ -1007,6 +1066,122 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/gas": {
+      "get": {
+        "operationId": "gas_balances_api_v1_admin_gas_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GasBalanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Gas Balances",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/admin/mint-nft": {
       "post": {
         "operationId": "mint_nft_api_v1_admin_mint_nft_post",

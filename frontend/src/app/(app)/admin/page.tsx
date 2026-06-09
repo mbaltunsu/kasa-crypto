@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { Fuel, ShieldCheck } from "lucide-react";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -12,15 +12,37 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { shortChain } from "@/lib/assets";
 import {
+  useAdminGas,
   useAdminReserves,
   useAdminWithdrawals,
   useAssetMap,
   useChains,
   useMintNft,
 } from "@/api/queries";
+import type { GasStatus } from "@/api/enums";
+
+const GAS_BADGE: Record<GasStatus, string> = {
+  ok: "bg-pos/10 text-pos ring-pos/30",
+  low: "bg-gold/10 text-gold ring-gold/30",
+  critical: "bg-neg/10 text-neg ring-neg/30",
+  unknown: "bg-surface2 text-muted ring-border",
+};
+
+function GasBadge({ status }: { status: GasStatus }) {
+  return (
+    <span className={`inline-flex rounded-full px-2 py-1 text-xs ring-1 ${GAS_BADGE[status]}`}>
+      {status}
+    </span>
+  );
+}
+
+function needsTopUp(status: GasStatus) {
+  return status === "low" || status === "critical";
+}
 
 export default function AdminPage() {
   const reserves = useAdminReserves();
+  const gas = useAdminGas();
   const withdrawals = useAdminWithdrawals();
   const chains = useChains().data ?? [];
   const mint = useMintNft();
@@ -83,6 +105,56 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+          )}
+        </Card>
+
+        {/* Gas balances */}
+        <Card className="overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-border px-5 py-4 text-sm font-semibold">
+            <Fuel className="h-4 w-4 text-gold" /> Gas balances
+          </div>
+          {gas.isLoading ? (
+            <div className="space-y-2 p-5">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : (
+            <>
+              <table className="w-full text-sm">
+                <thead className="text-xs text-muted">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2.5 text-left font-medium">Chain</th>
+                    <th className="px-5 py-2.5 text-right font-medium">Hot wallet gas</th>
+                    <th className="px-5 py-2.5 text-right font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(gas.data?.chains ?? []).map((chain) => (
+                    <tr key={chain.chain_id} className="hover:bg-surface2/50">
+                      <td className="px-5 py-3">
+                        <div className="font-medium">{shortChain(chain.chain_id)}</div>
+                        <div className="text-xs text-muted">{chain.symbol}</div>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <MoneyText
+                          amount={chain.balance}
+                          decimals={chain.decimals}
+                          symbol={chain.symbol}
+                        />
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <GasBadge status={chain.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(gas.data?.chains ?? []).some((chain) => needsTopUp(chain.status)) ? (
+                <p className="border-t border-border px-5 py-3 text-xs text-gold">
+                  Top up hot wallets marked low or critical before queued sends stall.
+                </p>
+              ) : null}
+            </>
           )}
         </Card>
 

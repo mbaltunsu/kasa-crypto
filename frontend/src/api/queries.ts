@@ -100,6 +100,13 @@ export function useAdminReserves() {
   });
 }
 
+export function useAdminGas() {
+  return useQuery({
+    queryKey: ["admin", "gas"],
+    queryFn: async () => must(await api.GET("/api/v1/admin/gas")),
+  });
+}
+
 export function useAdminWithdrawals() {
   return useQuery({
     queryKey: ["admin", "withdrawals"],

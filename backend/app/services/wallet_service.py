@@ -18,6 +18,7 @@ from app.schemas.wallet import BalanceResponse, DepositAddressResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
 from app.services.idempotency import scoped_idempotency_key
+from app.services.rate_limit import enforce_rate_limit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -93,6 +94,7 @@ async def request_faucet(
     other deposit. Simulation mode (offline / no key): immediately credit the ledger so the demo
     is usable without a live chain.
     """
+    await enforce_rate_limit(session, action="faucet", user_id=user.id)
     if amount <= 0:
         raise_api_error(
             HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive",

@@ -2,6 +2,7 @@ from app.core.enums import (
     AssetType,
     DepositStatus,
     ErrorCode,
+    GasStatus,
     LedgerEntryType,
     TransferStatus,
     UserRole,
@@ -22,7 +23,13 @@ def test_enum_values_match_contract() -> None:
         "failed",
         "rejected",
     ]
-    assert [item.value for item in TransferStatus] == ["pending", "submitted", "confirmed", "failed"]
+    assert [item.value for item in TransferStatus] == [
+        "pending",
+        "submitted",
+        "confirmed",
+        "failed",
+    ]
+    assert [item.value for item in GasStatus] == ["ok", "low", "critical", "unknown"]
     assert [item.value for item in LedgerEntryType] == [
         "deposit",
         "withdrawal",

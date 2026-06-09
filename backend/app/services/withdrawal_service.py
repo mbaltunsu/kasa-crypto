@@ -14,6 +14,7 @@ from app.schemas.withdrawal import WithdrawalCreateResponse, WithdrawalResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
 from app.services.idempotency import scoped_idempotency_key
+from app.services.rate_limit import enforce_rate_limit
 from app.services.wallet_service import get_asset
 
 
@@ -26,8 +27,13 @@ async def create_withdrawal(
     amount: int,
     idempotency_key: str,
 ) -> WithdrawalCreateResponse:
+    await enforce_rate_limit(session, action="withdrawal", user_id=user.id)
     if amount <= 0:
-        raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive")
+        raise_api_error(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            ErrorCode.VALIDATION_ERROR,
+            "Amount must be positive",
+        )
 
     # Validate + canonicalize the destination at request time (before reserving funds) so a typo'd
     # checksum or the zero address can never be signed and broadcast (finding #14).
