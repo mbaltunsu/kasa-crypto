@@ -273,11 +273,19 @@ class ChainClient:
     def _providers(self) -> list[Any]:
         if self._web3s is None:
             from web3 import HTTPProvider, Web3
+            from web3.middleware import ExtraDataToPOAMiddleware  # noqa: PLC0415
 
-            self._web3s = [
-                Web3(HTTPProvider(url, request_kwargs={"timeout": self._request_timeout}))
-                for url in self._rpc_urls
-            ]
+            providers: list[Any] = []
+            for url in self._rpc_urls:
+                web3 = Web3(HTTPProvider(url, request_kwargs={"timeout": self._request_timeout}))
+                # POA chains (Avalanche Fuji, BSC, Polygon, …) put >32 bytes in block `extraData`,
+                # which web3.py's default header validation rejects with ExtraDataLengthError —
+                # breaking every get_block/block_hash call (and thus deposit confirmation + reorg
+                # checks) on those chains. This middleware tolerates the longer field and is a
+                # no-op on PoS Ethereum (Sepolia), so it is safe to inject on every provider.
+                web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                providers.append(web3)
+            self._web3s = providers
         return self._web3s
 
     def _with_failover(self, label: str, fn: Callable[[Any], T]) -> T:
