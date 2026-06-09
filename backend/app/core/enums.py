@@ -66,6 +66,15 @@ class NftWithdrawalStatus(StrEnum):
     FAILED = "failed"
 
 
+class NftSweepStatus(StrEnum):
+    PENDING = "pending"
+    FUNDING = "funding"
+    FUNDED = "funded"
+    SWEEPING = "sweeping"
+    SWEPT = "swept"
+    FAILED = "failed"
+
+
 class GasStatus(StrEnum):
     OK = "ok"
     LOW = "low"

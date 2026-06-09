@@ -28,7 +28,7 @@ from app.core.config import Settings, get_settings
 from app.core.hd_wallet import hot_wallet_account
 from app.db import get_session_factory
 from app.models.tables import ChainCursor
-from worker import nft_minter, nft_watcher, nft_withdrawer, watcher, withdrawer
+from worker import nft_minter, nft_sweeper, nft_watcher, nft_withdrawer, watcher, withdrawer
 
 if TYPE_CHECKING:
     from kasa_shared.models import Chain
@@ -285,6 +285,49 @@ async def _nft_withdrawer_loop(ctx: WorkerContext, client: SenderClient) -> None
         await sleep_until_stop(ctx.stop, ctx.settings.withdrawer_poll_seconds)
 
 
+async def _nft_sweeper_loop(ctx: WorkerContext, client: nft_sweeper.SweepClient) -> None:
+    while not ctx.stop.is_set():
+        try:
+            async with ctx.session_factory() as session:
+                discovered = await nft_sweeper.discover_sweeps(session, client)
+                await session.commit()
+            async with ctx.session_factory() as session:
+                funded = await nft_sweeper.fund_pending(
+                    session,
+                    client,
+                    hot_wallet_key=ctx.hot_wallet_key,
+                    hot_wallet_address=ctx.hot_wallet_address,
+                )
+                await session.commit()
+            async with ctx.session_factory() as session:
+                sweeping = await nft_sweeper.sweep_funded(
+                    session,
+                    client,
+                    hot_wallet_address=ctx.hot_wallet_address,
+                )
+                await session.commit()
+            async with ctx.session_factory() as session:
+                swept = await nft_sweeper.confirm_sweeps(
+                    session,
+                    client,
+                    confirmations=ctx.settings.deposit_confirmations,
+                    hot_wallet_address=ctx.hot_wallet_address,
+                )
+                await session.commit()
+            if discovered or funded or sweeping or swept:
+                logger.info(
+                    "nft-sweeper chain=%s discovered=%d funded=%d sweeping=%d swept=%d",
+                    client.chain_id,
+                    discovered,
+                    funded,
+                    sweeping,
+                    swept,
+                )
+        except Exception:
+            logger.exception("nft sweeper pass failed chain=%s", client.chain_id)
+        await sleep_until_stop(ctx.stop, ctx.settings.withdrawer_poll_seconds)
+
+
 def _install_signal_handlers(stop: asyncio.Event) -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -318,8 +361,9 @@ async def run() -> None:
         tasks.append(asyncio.create_task(_withdrawer_loop(ctx, client)))
         tasks.append(asyncio.create_task(_nft_minter_loop(ctx, client)))
         tasks.append(asyncio.create_task(_nft_withdrawer_loop(ctx, client)))
+        tasks.append(asyncio.create_task(_nft_sweeper_loop(ctx, client)))
 
-    logger.info("kasa worker started: %d loop(s) across %d chain(s)", len(tasks), len(tasks) // 4)
+    logger.info("kasa worker started: %d loop(s) across %d chain(s)", len(tasks), len(tasks) // 5)
     await asyncio.gather(*tasks)
     logger.info("kasa worker stopped")
 

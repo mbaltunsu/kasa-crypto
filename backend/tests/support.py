@@ -26,6 +26,8 @@ class SentTx:
     nonce: int
     token_address: str | None
     tx_hash: str
+    from_address: str | None = None
+    private_key: str | None = None
 
 
 @dataclass
@@ -148,7 +150,14 @@ class FakeChainClient:
         nonce: int,
         gas_price: int,
     ) -> SignedTx:
-        return self._sign("native", to_address=to_address, value=value, nonce=nonce, token=None)
+        return self._sign(
+            "native",
+            to_address=to_address,
+            value=value,
+            nonce=nonce,
+            token=None,
+            private_key=private_key,
+        )
 
     def sign_erc20(
         self,
@@ -160,7 +169,14 @@ class FakeChainClient:
         nonce: int,
         gas_price: int,
     ) -> SignedTx:
-        return self._sign("erc20", to_address=to_address, value=value, nonce=nonce, token=token_address)
+        return self._sign(
+            "erc20",
+            to_address=to_address,
+            value=value,
+            nonce=nonce,
+            token=token_address,
+            private_key=private_key,
+        )
 
     def sign_erc721_mint(
         self,
@@ -171,9 +187,14 @@ class FakeChainClient:
         nonce: int,
         gas_price: int,
     ) -> SignedTx:
-        _ = private_key, gas_price
+        _ = gas_price
         return self._sign(
-            "erc721_mint", to_address=to_address, value=0, nonce=nonce, token=contract_address,
+            "erc721_mint",
+            to_address=to_address,
+            value=0,
+            nonce=nonce,
+            token=contract_address,
+            private_key=private_key,
         )
 
     def sign_erc721_transfer(  # noqa: PLR0913
@@ -187,13 +208,15 @@ class FakeChainClient:
         nonce: int,
         gas_price: int,
     ) -> SignedTx:
-        _ = private_key, from_address, gas_price
+        _ = gas_price
         return self._sign(
             "erc721_transfer",
             to_address=to_address,
             value=int(token_id),
             nonce=nonce,
             token=contract_address,
+            from_address=from_address,
+            private_key=private_key,
         )
 
     def broadcast_raw(self, raw: str) -> str:
@@ -264,6 +287,8 @@ class FakeChainClient:
         value: int,
         nonce: int,
         token: str | None,
+        from_address: str | None = None,
+        private_key: str | None = None,
     ) -> SignedTx:
         # Deterministic raw payload so re-signing identical inputs yields the same tx (idempotent
         # re-broadcast), mirroring the real client. The raw string also carries the structured fields
@@ -271,7 +296,14 @@ class FakeChainClient:
         raw = f"0xsigned:{kind}:{to_address}:{value}:{nonce}:{token}"
         tx_hash = "0x" + hashlib.sha256(raw.encode()).hexdigest()
         self._signed[raw] = SentTx(
-            kind=kind, to_address=to_address, value=value, nonce=nonce, token_address=token, tx_hash=tx_hash,
+            kind=kind,
+            to_address=to_address,
+            value=value,
+            nonce=nonce,
+            token_address=token,
+            tx_hash=tx_hash,
+            from_address=from_address,
+            private_key=private_key,
         )
         return SignedTx(raw=raw, tx_hash=tx_hash)
 

@@ -344,6 +344,46 @@ class NftWithdrawalRequest(Base):
     )
 
 
+class NftSweep(Base):
+    __tablename__ = "nft_sweeps"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    contract: Mapped[str] = mapped_column(Text, nullable=False)
+    token_id: Mapped[str] = mapped_column(Text, nullable=False)
+    deposit_address: Mapped[str] = mapped_column(Text, nullable=False)
+    hd_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    nft_deposit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("nft_deposits.id"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    gas_fund_tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gas_fund_nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sweep_signed_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sweep_tx_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sweep_nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    unmined_since_block: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending','funding','funded','sweeping','swept','failed')",
+            name="ck_nft_sweeps_status",
+        ),
+        Index(
+            "uq_nft_sweeps_chain_contract_token",
+            "chain_id",
+            func.lower(contract),
+            "token_id",
+            unique=True,
+        ),
+    )
+
+
 class WithdrawalRequest(Base):
     __tablename__ = "withdrawal_requests"
     __table_args__ = (
