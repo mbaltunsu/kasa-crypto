@@ -41,6 +41,7 @@ class Erc721Transfer:
 
 @dataclass(frozen=True)
 class NativeTransfer:
+    from_address: str
     to_address: str
     value: int
     tx_hash: str
@@ -216,6 +217,13 @@ class SenderClient(Protocol):
         tx_hash: str,
         contract_address: str,
         to_address: str,
+    ) -> str | None: ...
+
+    def erc721_owner_of(
+        self,
+        *,
+        contract_address: str,
+        token_id: str,
     ) -> str | None: ...
 
 

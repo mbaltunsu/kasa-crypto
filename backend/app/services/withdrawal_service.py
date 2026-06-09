@@ -27,6 +27,18 @@ async def create_withdrawal(
     amount: int,
     idempotency_key: str,
 ) -> WithdrawalCreateResponse:
+    scoped_key = scoped_idempotency_key(
+        domain="withdraw", user_id=user.id, client_key=idempotency_key,
+    )
+    existing_tx = await ledger.find_transaction_by_idempotency_key(session, scoped_key)
+    if existing_tx is not None and existing_tx.ref_type == "withdrawal_request":
+        existing = await get_withdrawal_for_user(
+            session,
+            user=user,
+            withdrawal_id=UUID(existing_tx.ref_id),
+        )
+        return WithdrawalCreateResponse(id=existing.id, status=WithdrawalStatus(existing.status))
+
     await enforce_rate_limit(session, action="withdrawal", user_id=user.id)
     if amount <= 0:
         raise_api_error(
@@ -41,18 +53,6 @@ async def create_withdrawal(
         to_address = to_checksum_address_strict(to_address)
     except InvalidAddressError as exc:
         raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, str(exc))
-
-    scoped_key = scoped_idempotency_key(
-        domain="withdraw", user_id=user.id, client_key=idempotency_key,
-    )
-    existing_tx = await ledger.find_transaction_by_idempotency_key(session, scoped_key)
-    if existing_tx is not None and existing_tx.ref_type == "withdrawal_request":
-        existing = await get_withdrawal_for_user(
-            session,
-            user=user,
-            withdrawal_id=UUID(existing_tx.ref_id),
-        )
-        return WithdrawalCreateResponse(id=existing.id, status=WithdrawalStatus(existing.status))
 
     asset = await get_asset(session, asset_id)
     # Lock the user's wallet account before the balance check so two concurrent debits cannot both

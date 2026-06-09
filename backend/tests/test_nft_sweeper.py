@@ -104,6 +104,55 @@ async def test_discover_creates_pending_sweep_idempotently(session: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_discover_rearms_failed_sweep_under_attempt_cap(session: AsyncSession) -> None:
+    sweep = await _sweep(session, status=NftSweepStatus.FAILED)
+    sweep.attempts = 2
+    sweep.gas_fund_tx_hash = "0xgas"
+    sweep.gas_fund_nonce = 7
+    sweep.sweep_signed_tx = "0xsigned"
+    sweep.sweep_tx_hash = "0xsweep"
+    sweep.sweep_nonce = 3
+    sweep.unmined_since_block = 42
+    sweep.error = "old failure"
+    client = FakeChainClient(chain_id=CHAIN_ID)
+
+    rearmed = await nft_sweeper.discover_sweeps(session, client)
+
+    assert rearmed == 1
+    await session.refresh(sweep)
+    assert sweep.status == NftSweepStatus.PENDING.value
+    assert sweep.attempts == nft_sweeper.MAX_SWEEP_ATTEMPTS - 1
+    # re-arm clears all tx/marker fields (list[object] avoids stale per-field narrowing from the
+    # non-None assignments above tripping mypy's unreachable / strict-equality checks).
+    cleared: list[object] = [
+        sweep.gas_fund_tx_hash,
+        sweep.gas_fund_nonce,
+        sweep.sweep_signed_tx,
+        sweep.sweep_tx_hash,
+        sweep.sweep_nonce,
+        sweep.unmined_since_block,
+        sweep.error,
+    ]
+    assert all(v is None for v in cleared)
+
+
+@pytest.mark.asyncio
+async def test_discover_leaves_failed_sweep_at_attempt_cap(session: AsyncSession) -> None:
+    sweep = await _sweep(session, status=NftSweepStatus.FAILED)
+    sweep.attempts = 3
+    sweep.error = "needs manual intervention"
+    client = FakeChainClient(chain_id=CHAIN_ID)
+
+    rearmed = await nft_sweeper.discover_sweeps(session, client)
+
+    assert rearmed == 0
+    await session.refresh(sweep)
+    assert sweep.status == NftSweepStatus.FAILED.value
+    assert sweep.attempts == nft_sweeper.MAX_SWEEP_ATTEMPTS
+    assert sweep.error == "needs manual intervention"
+
+
+@pytest.mark.asyncio
 async def test_fund_pending_signs_broadcasts_and_marks_funded(session: AsyncSession) -> None:
     sweep = await _sweep(session, status=NftSweepStatus.PENDING)
     client = FakeChainClient(chain_id=CHAIN_ID, nonces={HOT_ADDR.lower(): FIRST_NONCE})
@@ -164,6 +213,34 @@ async def test_fund_pending_already_funded_skips_tx(session: AsyncSession) -> No
 
 
 @pytest.mark.asyncio
+async def test_funding_sweep_rebroadcasts_gas_at_persisted_nonce(
+    session: AsyncSession,
+) -> None:
+    sweep = await _sweep(session, status=NftSweepStatus.FUNDING)
+    sweep.gas_fund_nonce = FIRST_NONCE
+    sweep.gas_fund_tx_hash = "0xold"
+    client = FakeChainClient(chain_id=CHAIN_ID, nonces={HOT_ADDR.lower(): FIRST_NONCE + 99})
+
+    progressed = await nft_sweeper.fund_pending(
+        session,
+        client,
+        hot_wallet_key=HOT_KEY,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert progressed == 1
+    await session.refresh(sweep)
+    assert sweep.status == NftSweepStatus.FUNDING.value
+    assert sweep.gas_fund_nonce == FIRST_NONCE
+    assert client.sent[0].kind == "native"
+    assert client.sent[0].nonce == FIRST_NONCE
+    nonce_rows = (
+        await session.execute(select(HotWalletNonce).where(HotWalletNonce.chain_id == CHAIN_ID))
+    ).scalars().all()
+    assert nonce_rows == []
+
+
+@pytest.mark.asyncio
 async def test_sweep_funded_signs_from_deposit_address(session: AsyncSession) -> None:
     sweep = await _sweep(session, status=NftSweepStatus.FUNDED, hd_index=2)
     client = FakeChainClient(chain_id=CHAIN_ID, nonces={DEPOSIT_ADDR.lower(): DEPOSIT_NONCE})
@@ -204,6 +281,7 @@ async def test_confirm_happy_path_marks_swept_and_keeps_holding_held(
                 block_hash=block_hash,
             ),
         },
+        erc721_owners={(CONTRACT.lower(), TOKEN_ID): HOT_ADDR},
     )
 
     confirmed = await nft_sweeper.confirm_sweeps(
@@ -218,6 +296,41 @@ async def test_confirm_happy_path_marks_swept_and_keeps_holding_held(
     await session.refresh(holding)
     assert sweep.status == NftSweepStatus.SWEPT.value
     assert holding.status == NftHoldingStatus.HELD.value
+
+
+@pytest.mark.asyncio
+async def test_confirm_does_not_mark_swept_when_owner_is_not_hot_wallet(
+    session: AsyncSession,
+) -> None:
+    sweep = await _sweep(session, status=NftSweepStatus.SWEEPING)
+    sweep.sweep_tx_hash = "0xsweep"
+    sweep.sweep_nonce = DEPOSIT_NONCE
+    block_hash = "0x" + "ab" * 32
+    client = FakeChainClient(
+        chain_id=CHAIN_ID,
+        head=20,
+        block_hashes={10: block_hash},
+        receipts={
+            "0xsweep": TxReceipt(
+                tx_hash="0xsweep",
+                status=1,
+                block_number=10,
+                block_hash=block_hash,
+            ),
+        },
+        erc721_owners={(CONTRACT.lower(), TOKEN_ID): SENDER_ADDR},
+    )
+
+    confirmed = await nft_sweeper.confirm_sweeps(
+        session,
+        client,
+        confirmations=5,
+        hot_wallet_address=HOT_ADDR,
+    )
+
+    assert confirmed == 0
+    await session.refresh(sweep)
+    assert sweep.status == NftSweepStatus.SWEEPING.value
 
 
 @pytest.mark.asyncio
@@ -252,6 +365,7 @@ async def test_confirm_grace_gate_waits_for_receipt_then_sweeps(session: AsyncSe
         block_hash=block_hash,
     )
     client.block_hashes[31] = block_hash
+    client.erc721_owners[(CONTRACT.lower(), TOKEN_ID)] = HOT_ADDR
     client.head = 40
 
     confirmed = await nft_sweeper.confirm_sweeps(

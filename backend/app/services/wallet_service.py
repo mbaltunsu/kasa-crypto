@@ -94,19 +94,19 @@ async def request_faucet(
     other deposit. Simulation mode (offline / no key): immediately credit the ledger so the demo
     is usable without a live chain.
     """
-    await enforce_rate_limit(session, action="faucet", user_id=user.id)
-    if amount <= 0:
-        raise_api_error(
-            HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive",
-        )
-    asset = await get_asset(session, asset_id)
-
     scoped_key = scoped_idempotency_key(domain="faucet", user_id=user.id, client_key=idempotency_key)
     existing_tx = await ledger.find_transaction_by_idempotency_key(session, scoped_key)
     if existing_tx is not None:
         is_sim = existing_tx.ref_type == _FAUCET_SIM_REF
         status = DepositStatus.CREDITED if is_sim else DepositStatus.SEEN
         return FaucetResponse(tx_hash=existing_tx.ref_id, status=status)
+
+    await enforce_rate_limit(session, action="faucet", user_id=user.id)
+    if amount <= 0:
+        raise_api_error(
+            HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive",
+        )
+    asset = await get_asset(session, asset_id)
 
     address = (
         await session.execute(select(DepositAddress).where(DepositAddress.user_id == user.id))

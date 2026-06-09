@@ -138,12 +138,6 @@ async def request_withdrawal(
     to_address: str,
     idempotency_key: str,
 ) -> NftWithdrawalCreateResponse:
-    await enforce_rate_limit(session, action="nft_withdrawal", user_id=user.id)
-    try:
-        to_address = to_checksum_address_strict(to_address)
-    except InvalidAddressError as exc:
-        raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, str(exc))
-
     scoped_key = scoped_idempotency_key(
         domain="nft-withdrawal", user_id=user.id, client_key=idempotency_key,
     )
@@ -153,6 +147,12 @@ async def request_withdrawal(
             id=existing_withdrawal.id,
             status=NftWithdrawalStatus(existing_withdrawal.status),
         )
+
+    await enforce_rate_limit(session, action="nft_withdrawal", user_id=user.id)
+    try:
+        to_address = to_checksum_address_strict(to_address)
+    except InvalidAddressError as exc:
+        raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, str(exc))
 
     holding = (
         await session.execute(

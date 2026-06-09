@@ -89,6 +89,7 @@ async def test_record_deposits_records_native_transfer(session: AsyncSession) ->
         head=200,
         native_transfers=[
             NativeTransfer(
+                from_address=SENDER,
                 to_address=ALICE_ADDR,
                 value=2 * ONE_ETH,
                 tx_hash="0x" + "22" * 32,
@@ -112,6 +113,51 @@ async def test_record_deposits_records_native_transfer(session: AsyncSession) ->
 
 
 @pytest.mark.asyncio
+async def test_record_deposits_skips_native_transfer_from_hot_wallet(
+    session: AsyncSession,
+) -> None:
+    native, _token, alice = await _world(session)
+    hot_wallet = SENDER
+    client = FakeChainClient(
+        chain_id=CHAIN_ID,
+        head=200,
+        native_transfers=[
+            NativeTransfer(
+                from_address=hot_wallet,
+                to_address=ALICE_ADDR,
+                value=2 * ONE_ETH,
+                tx_hash="0x" + "23" * 32,
+                block_number=101,
+                block_hash="0x" + "bb" * 32,
+            ),
+            NativeTransfer(
+                from_address="0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                to_address=ALICE_ADDR,
+                value=ONE_ETH,
+                tx_hash="0x" + "24" * 32,
+                block_number=102,
+                block_hash="0x" + "cc" * 32,
+            ),
+        ],
+    )
+
+    inserted = await watcher.record_deposits(
+        session,
+        client,
+        from_block=1,
+        to_block=200,
+        hot_wallet_address=hot_wallet.upper(),
+    )
+
+    assert inserted == 1
+    deposit = (await session.execute(select(OnchainDeposit))).scalar_one()
+    assert deposit.asset_id == native.id
+    assert deposit.user_id == alice.id
+    assert int(deposit.amount) == ONE_ETH
+    assert deposit.tx_hash == "0x" + "24" * 32
+
+
+@pytest.mark.asyncio
 async def test_record_deposits_records_internal_transfers_when_enabled(session: AsyncSession) -> None:
     """#11: with internal-transfer watching on, native value delivered via a contract internal call
     (carried in fetch_internal_transfers) is recorded like any other deposit."""
@@ -121,6 +167,7 @@ async def test_record_deposits_records_internal_transfers_when_enabled(session: 
         head=200,
         internal_transfers=[
             NativeTransfer(
+                from_address=SENDER,
                 to_address=ALICE_ADDR,
                 value=3 * ONE_ETH,
                 tx_hash="0x" + "44" * 32,
@@ -149,6 +196,7 @@ async def test_record_deposits_ignores_internal_transfers_when_disabled(session:
         head=200,
         internal_transfers=[
             NativeTransfer(
+                from_address=SENDER,
                 to_address=ALICE_ADDR,
                 value=ONE_ETH,
                 tx_hash="0x" + "44" * 32,
@@ -176,11 +224,17 @@ async def test_internal_and_top_level_native_in_one_tx_are_both_recorded(session
         head=200,
         native_transfers=[
             NativeTransfer(
-                to_address=ALICE_ADDR, value=ONE_ETH, tx_hash=tx_hash, block_number=100, block_hash=block_hash,
+                from_address=SENDER,
+                to_address=ALICE_ADDR,
+                value=ONE_ETH,
+                tx_hash=tx_hash,
+                block_number=100,
+                block_hash=block_hash,
             ),
         ],
         internal_transfers=[
             NativeTransfer(
+                from_address=SENDER,
                 to_address=ALICE_ADDR,
                 value=2 * ONE_ETH,
                 tx_hash=tx_hash,
@@ -205,6 +259,7 @@ async def test_record_deposits_ignores_unknown_recipient(session: AsyncSession) 
         head=200,
         native_transfers=[
             NativeTransfer(
+                from_address=SENDER,
                 to_address="0x000000000000000000000000000000000000dEaD",
                 value=ONE_ETH,
                 tx_hash="0x" + "33" * 32,

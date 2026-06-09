@@ -32,6 +32,8 @@ logger = logging.getLogger("kasa.worker.nft_sweeper")
 
 GAS_BUDGET_WEI = 2_000_000_000_000_000
 _DEFAULT_BATCH = 20
+# A failed sweep is re-armed by discovery up to this many attempts, then left for manual review.
+MAX_SWEEP_ATTEMPTS = 3
 
 
 def _hd_index(derivation_path: str) -> int:
@@ -39,33 +41,48 @@ def _hd_index(derivation_path: str) -> int:
 
 
 async def discover_sweeps(session: AsyncSession, client: SweepClient) -> int:
-    sweep_exists = (
-        select(NftSweep.id)
-        .where(
-            NftSweep.chain_id == NftDeposit.chain_id,
-            func.lower(NftSweep.contract) == func.lower(NftDeposit.contract),
-            NftSweep.token_id == NftDeposit.token_id,
-        )
-        .exists()
-    )
     rows = (
         await session.execute(
-            select(NftDeposit, DepositAddress)
+            select(NftDeposit, DepositAddress, NftSweep)
             .join(
                 DepositAddress,
                 func.lower(DepositAddress.address) == func.lower(NftDeposit.to_address),
             )
+            .outerjoin(
+                NftSweep,
+                (NftSweep.chain_id == NftDeposit.chain_id)
+                & (func.lower(NftSweep.contract) == func.lower(NftDeposit.contract))
+                & (NftSweep.token_id == NftDeposit.token_id),
+            )
             .where(
                 NftDeposit.chain_id == client.chain_id,
                 NftDeposit.status == NftDepositStatus.CREDITED.value,
-                ~sweep_exists,
             )
             .order_by(NftDeposit.created_at, NftDeposit.id),
         )
     ).all()
 
     discovered = 0
-    for deposit, address in rows:
+    for deposit, address, sweep in rows:
+        if sweep is not None:
+            if sweep.status == NftSweepStatus.FAILED.value and sweep.attempts < MAX_SWEEP_ATTEMPTS:
+                sweep.status = NftSweepStatus.PENDING.value
+                sweep.gas_fund_tx_hash = None
+                sweep.gas_fund_nonce = None
+                sweep.sweep_signed_tx = None
+                sweep.sweep_tx_hash = None
+                sweep.sweep_nonce = None
+                sweep.unmined_since_block = None
+                sweep.error = None
+                discovered += 1
+            elif sweep.status == NftSweepStatus.FAILED.value:
+                logger.warning(
+                    "nft sweep %s remains failed after %s attempts on chain %s",
+                    sweep.id,
+                    sweep.attempts,
+                    client.chain_id,
+                )
+            continue
         session.add(
             NftSweep(
                 chain_id=deposit.chain_id,
@@ -80,6 +97,11 @@ async def discover_sweeps(session: AsyncSession, client: SweepClient) -> int:
         discovered += 1
     await session.flush()
     return discovered
+
+
+def _already_broadcast_error(exc: ChainRpcError) -> bool:
+    text = str(exc).lower()
+    return "nonce too low" in text or "already known" in text
 
 
 async def _claim_sweeps(
@@ -99,7 +121,7 @@ async def _claim_sweeps(
     return list((await session.execute(statement)).scalars())
 
 
-async def fund_pending(
+async def fund_pending(  # noqa: C901 - linear fund/re-fund/skip branches; clearer inline than split
     session: AsyncSession,
     client: SweepClient,
     *,
@@ -121,6 +143,25 @@ async def fund_pending(
     for sweep in sweeps:
         if client.native_balance(sweep.deposit_address) >= GAS_BUDGET_WEI:
             sweep.status = NftSweepStatus.FUNDED.value
+            progressed += 1
+            continue
+        if sweep.status == NftSweepStatus.FUNDING.value:
+            if sweep.gas_fund_nonce is None:
+                continue
+            tx = client.sign_native(
+                private_key=hot_wallet_key,
+                to_address=sweep.deposit_address,
+                value=GAS_BUDGET_WEI,
+                nonce=sweep.gas_fund_nonce,
+                gas_price=gas_price,
+            )
+            try:
+                sweep.gas_fund_tx_hash = client.broadcast_raw(tx.raw)
+            except ChainRpcError as exc:
+                if _already_broadcast_error(exc):
+                    continue
+                logger.warning("nft sweep %s gas funding rebroadcast failed; will retry", sweep.id)
+                continue
             progressed += 1
             continue
         if sweep.status != NftSweepStatus.PENDING.value:
@@ -246,7 +287,8 @@ async def confirm_sweeps(
             sweep.status = NftSweepStatus.FAILED.value
             sweep.error = "sweep reverted"
             continue
-        if not _owner_is_hot_wallet(client, sweep=sweep, hot_wallet_address=hot_wallet_address):
+        owner = client.erc721_owner_of(contract_address=sweep.contract, token_id=sweep.token_id)
+        if owner is None or owner.lower() != hot_wallet_address.lower():
             continue
         sweep.status = NftSweepStatus.SWEPT.value
         swept += 1
@@ -274,17 +316,3 @@ def _reconcile_unmined(
         sweep.status = NftSweepStatus.FAILED.value
         sweep.error = "sweep tx dropped (nonce superseded)"
 
-
-def _owner_is_hot_wallet(
-    client: SweepClient,
-    *,
-    sweep: NftSweep,
-    hot_wallet_address: str,
-) -> bool:
-    owner_of = getattr(client, "erc721_owner_of", None)
-    if owner_of is None:
-        return True
-    owner = owner_of(contract_address=sweep.contract, token_id=sweep.token_id)
-    if owner is None:
-        return False
-    return bool(owner.lower() == hot_wallet_address.lower())

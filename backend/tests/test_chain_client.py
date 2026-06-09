@@ -35,10 +35,17 @@ def test_internal_transfers_from_trace_collects_value_calls_to_watched_addresses
                     {"type": "CALL", "to": DEAD, "value": "0x1", "calls": []},  # not watched
                     {
                         "type": "CALL",
+                        "from": "0xC0ffee0000000000000000000000000000000000",
                         "to": DEPOSIT,
                         "value": "0x64",  # 100 wei → deposit
                         "calls": [
-                            {"type": "CALL", "to": DEPOSIT, "value": "0x5", "calls": []},  # nested 5 wei
+                            {
+                                "type": "CALL",
+                                "from": "0xC0ffee0000000000000000000000000000000000",
+                                "to": DEPOSIT,
+                                "value": "0x5",  # nested 5 wei
+                                "calls": [],
+                            },
                         ],
                     },
                     {"type": "CALL", "to": DEPOSIT, "value": "0x0", "calls": []},  # zero value → skip

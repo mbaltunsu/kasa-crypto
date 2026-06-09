@@ -47,6 +47,7 @@ class FakeChainClient:
     gas_price: int = 1_000_000_000
     native_balances: dict[str, int] = field(default_factory=dict)
     erc20_balances: dict[tuple[str, str], int] = field(default_factory=dict)
+    erc721_owners: dict[tuple[str, str], str] = field(default_factory=dict)
     send_error: str | None = None
     sent: list[SentTx] = field(default_factory=list)
     _signed: dict[str, SentTx] = field(default_factory=dict)
@@ -130,6 +131,9 @@ class FakeChainClient:
 
     def erc20_balance(self, *, token_address: str, address: str) -> int:
         return self.erc20_balances.get((token_address.lower(), address.lower()), 0)
+
+    def erc721_owner_of(self, *, contract_address: str, token_id: str) -> str | None:
+        return self.erc721_owners.get((contract_address.lower(), token_id))
 
     # ── SenderClient ───────────────────────────────────────────────────────────
     def pending_nonce(self, address: str) -> int:
@@ -224,6 +228,8 @@ class FakeChainClient:
             raise ChainRpcError(self.send_error)
         sent = self._signed[raw]
         self.sent.append(sent)
+        if sent.kind == "erc721_transfer" and sent.token_address is not None:
+            self.erc721_owners[(sent.token_address.lower(), str(sent.value))] = sent.to_address
         return sent.tx_hash
 
     def send_native(

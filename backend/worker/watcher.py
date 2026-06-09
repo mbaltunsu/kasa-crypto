@@ -111,13 +111,14 @@ async def _insert_if_new(session: AsyncSession, deposit: OnchainDeposit) -> bool
     return False
 
 
-async def record_deposits(
+async def record_deposits(  # noqa: C901, PLR0913 - one cohesive ERC-20 + native indexing pass
     session: AsyncSession,
     client: WatcherClient,
     *,
     from_block: int,
     to_block: int,
     watch_internal: bool = False,
+    hot_wallet_address: str | None = None,
 ) -> int:
     if from_block > to_block:
         return 0
@@ -155,6 +156,7 @@ async def record_deposits(
             recorded += int(await _insert_if_new(session, deposit))
 
     if native_asset is not None:
+        hot_wallet_lower = hot_wallet_address.lower() if hot_wallet_address is not None else None
         natives = client.fetch_native_transfers(
             to_addresses=addresses,
             from_block=from_block,
@@ -170,6 +172,8 @@ async def record_deposits(
                 ),
             ]
         for native in natives:
+            if hot_wallet_lower is not None and native.from_address.lower() == hot_wallet_lower:
+                continue
             user_id = owners.get(native.to_address.lower())
             if user_id is None:
                 continue

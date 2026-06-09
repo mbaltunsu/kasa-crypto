@@ -37,6 +37,8 @@ ERC20_TRANSFER_GAS = 90_000
 ERC721_MINT_GAS = 180_000
 ERC721_TRANSFER_GAS = 120_000
 ZERO_TOPIC = "0x" + "0" * 64
+# A single ABI-encoded 32-byte word is 64 hex chars; an ownerOf return shorter than this is empty.
+_ABI_WORD_HEX_LEN = 64
 
 ERC20_MIN_ABI: list[dict[str, object]] = [
     {
@@ -176,6 +178,7 @@ def internal_transfers_from_trace(
                 continue
             transfers.append(
                 NativeTransfer(
+                    from_address=_checksum(call["from"]),
                     to_address=_checksum(to_address),
                     value=value,
                     tx_hash=tx_hash,
@@ -465,6 +468,7 @@ class ChainClient:
                 if to_address is not None and value > 0 and to_address.lower() in wanted:
                     transfers.append(
                         NativeTransfer(
+                            from_address=_checksum(tx["from"]),
                             to_address=_checksum(to_address),
                             value=value,
                             tx_hash=_to_hex(tx["hash"]),
@@ -527,6 +531,27 @@ class ChainClient:
             return int(contract.functions.balanceOf(_checksum(address)).call())
 
         return self._with_failover("balanceOf", call)
+
+    def erc721_owner_of(self, *, contract_address: str, token_id: str) -> str | None:
+        """Return ERC-721 ownerOf(tokenId), or None when the token does not exist / call reverts."""
+
+        token = int(token_id)
+        data = "0x6352211e" + f"{token:064x}"
+
+        def fetch(web3: Any) -> str | None:
+            try:
+                raw = web3.eth.call({"to": _checksum(contract_address), "data": data})
+            except Exception:  # noqa: BLE001 - ownerOf reverts for nonexistent tokens
+                return None
+            encoded = _to_hex(raw).removeprefix("0x")
+            if len(encoded) < _ABI_WORD_HEX_LEN:
+                return None
+            owner = "0x" + encoded[-40:]
+            if int(owner, 16) == 0:
+                return None
+            return _checksum(owner)
+
+        return self._find_across_providers("ownerOf", fetch)
 
     # ── writes (SenderClient) ──────────────────────────────────────────────────
 

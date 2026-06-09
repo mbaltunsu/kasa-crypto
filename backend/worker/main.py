@@ -104,6 +104,7 @@ async def _run_deposit_scans(
         from_block=from_block,
         to_block=head,
         watch_internal=ctx.settings.watch_internal_transfers,
+        hot_wallet_address=ctx.hot_wallet_address,
     )
     nft_recorded = await nft_watcher.record_nft_deposits(
         session,
