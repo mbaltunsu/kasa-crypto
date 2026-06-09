@@ -128,3 +128,78 @@ A final pass closed the last gap:
   is a pure, fully-unit-tested function (`internal_transfers_from_trace`).
 
 All 18 review findings are now addressed (17 fixed + tested; #11 shipped as an opt-in capability).
+
+## NFT support + custody (supersedes decisions 4 & 6)
+
+The ERC-721 path graduated from "admin mints a collectible, UI shows it, no custody accounting"
+(old decision 6) to a full custody model, and the deposited-asset **sweeper** that decision 4
+deferred is now **implemented for NFTs**:
+
+- **NFT custody model.** NFTs bypass the double-entry ledger (`nft_holdings` is the source of truth,
+  statuses `held|withdrawing|withdrawn`); fungible value stays on the ledger. Real on-chain ERC-721
+  mints go to the **custody hot wallet** (not the user's deposit address) via a nonce-safe two-phase
+  outbox (`worker/nft_minter.py`), so the hot wallet can later sign the withdrawal transfer. Internal
+  NFT transfers are off-chain `nft_holdings` ownership changes. Withdrawals (`worker/nft_withdrawer.py`)
+  sign `safeTransferFrom` from the hot wallet. Deposits are indexed by `worker/nft_watcher.py`.
+- **Deposited-NFT sweeper (decision 4, now built for NFTs).** An externally-deposited NFT lands at a
+  user's per-user deposit address (owned on-chain by that address), so the hot-wallet withdrawer would
+  revert for it. `worker/nft_sweeper.py` consolidates it into custody: `credited deposit → discover →
+  fund` (hot wallet sends a fixed gas budget to the deposit address) `→ sweep` (the deposit address's
+  HD-derived key signs `safeTransferFrom` into the hot wallet) `→ confirm`. The gas tx serializes on
+  the shared `hot_wallet_nonces` row; the sweep tx signs at the deposit address's own nonce. The
+  confirm phase reuses the same grace gate as the other outboxes and re-checks `ownerOf == hot wallet`.
+  Verified end-to-end on Fuji (external deposit → sweep → hot wallet → user withdrawal settles).
+
+## Live-testnet run — bugs that only a real chain exposed (Sepolia + Fuji)
+
+Running the full stack against live Sepolia + Fuji for the first time (the local Hardhat e2e never
+hit these because it uses a single instant RPC) surfaced and fixed three classes of bug:
+
+1. **POA block headers (Avalanche).** Fuji puts >32 bytes in block `extraData`; web3.py's default
+   header validation raises `ExtraDataLengthError`, breaking every `get_block`/`block_hash` call — so
+   the deposit watcher's confirm/credit pass rolled back and Fuji deposits were seen but never
+   credited. Fix: inject `ExtraDataToPOAMiddleware` on every provider (no-op on PoS Sepolia).
+2. **"Dropped-tx" false-positive (double-spend).** Every hot-wallet outbox (withdrawer, nft_minter,
+   nft_withdrawer, nft_sweeper) reversed a payout/mint as "dropped (nonce superseded)" whenever
+   `get_receipt` returned `None` and the nonce had advanced — but a *successfully mined* tx also
+   advances the nonce, and a load-balanced RPC (Alchemy) transiently returns a null receipt for a
+   fresh tx. Result: confirmed payouts reversed → ledger re-credit / NFT released while gone on-chain.
+   Fix: a persistence **grace gate** (`unmined_since_block`, migrations 0012/0013) symmetric with
+   settlement — reverse only after the receipt stays absent for `confirmations` blocks; clear the
+   marker the moment any receipt appears. The Sepolia mint run captured the exact race live and
+   settled correctly.
+3. **Dead-chain scan.** The registry carries the dev-only `31337` chain; with no local node a testnet
+   run spammed connection errors. Fix: treat a chain with no configured RPC as "not part of this
+   deployment" and skip it (worker + admin `/gas`).
+
+## Dual custody review of the NFT branch (Opus multi-agent 7-dimension + Codex gpt-5.5)
+
+A second dual review (Opus workflow: 7 dimensions × adversarial verification by 3 diverse-lens
+skeptics, 54 agents; plus an independent Codex gpt-5.5 pass) of the NFT-branch changes. **Fixed +
+tested:**
+
+- **Gas-funding credited as a deposit** — the sweeper's hot-wallet→deposit-address gas top-up was
+  indexed as a user deposit. Fix: the watcher excludes native transfers whose `from` is the custody
+  hot wallet (internal top-ups are never deposits).
+- **Dead ownership check** — `nft_sweeper`'s post-sweep `ownerOf == hot wallet` verification called a
+  non-existent client method (always `True`). Fix: add `ChainClient.erc721_owner_of` and make the
+  check real before marking a sweep SWEPT.
+- **Failed sweeps couldn't retry** — the `(chain_id, contract, token_id)` unique index + status-blind
+  discovery stranded a FAILED sweep. Fix: discovery re-arms a FAILED sweep to PENDING (bounded by
+  `attempts`).
+- **Stuck gas-funding** — a `FUNDING` sweep with a lost broadcast never retried. Fix: re-broadcast the
+  gas tx at the persisted nonce (idempotent; never allocates a fresh nonce → no gap).
+- **Rate limit charged before idempotency** — a same-`Idempotency-Key` retry within the window got a
+  429 instead of replaying. Fix: idempotency lookup runs before `enforce_rate_limit` (withdrawal,
+  NFT withdrawal, faucet).
+
+**Reviewed and consciously kept (documented, not "fixed"):**
+
+- **`FOR UPDATE` (no `SKIP LOCKED`) on `hot_wallet_nonces`** is *intentional* serialization of nonce
+  allocation; `SKIP LOCKED` would hand two outboxes the same nonce. Single row → no deadlock.
+- **Two nonce domains in the sweeper** (hot wallet funds gas; the deposit address signs the sweep) is
+  correct — they are different signers, ordered by the `FUNDED → SWEEPING` state gate.
+- **Terminal states (`CONFIRMED`/`SWEPT`/`WITHDRAWN`) are not re-checked after a deep reorg.** This is
+  the codebase's finality model: settle only after `N` confirmations + a canonical block-hash check,
+  then treat as final (deposits keep a longer reversal window). Reorg-reversing already-final outbound
+  txns is a documented production stretch item, not a demo-scope change.
