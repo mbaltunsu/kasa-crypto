@@ -51,8 +51,9 @@ services:
     image: kasa-backend:local
     env_file: ../.env
     environment:
-      # Inside the compose network reach Postgres by service name (overrides the host .env value).
+      # Inside the compose network reach services by name (overrides the host .env values).
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kasa}:${POSTGRES_PASSWORD:-kasa}@postgres:5432/${POSTGRES_DB:-kasa}
+      RPC_HARDHAT: http://hardhat-node:8545
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +78,7 @@ services:
     env_file: ../.env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-kasa}:${POSTGRES_PASSWORD:-kasa}@postgres:5432/${POSTGRES_DB:-kasa}
+      RPC_HARDHAT: http://hardhat-node:8545
     depends_on:
       postgres:
         condition: service_healthy
