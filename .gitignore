@@ -61,3 +61,6 @@ contracts/coverage.json
 # local e2e python venv (infra/e2e.sh)
 .e2e-venv
 **/.e2e-venv
+
+# Vercel
+.vercel
