@@ -28,4 +28,5 @@ RUN pnpm --filter @kasa/shared build && pnpm --filter frontend build
 
 WORKDIR /app/frontend
 EXPOSE 3000
-CMD ["pnpm", "exec", "next", "start", "-H", "0.0.0.0", "-p", "3000"]
+# Honor the platform's $PORT (Railway/Render inject it); default 3000 for docker-compose.
+CMD ["sh", "-c", "pnpm exec next start -H 0.0.0.0 -p ${PORT:-3000}"]

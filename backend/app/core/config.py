@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Maps registry chain ids to the settings field holding their (comma-separated) RPC URL list.
@@ -59,6 +59,20 @@ class Settings(BaseSettings):
     seed_demo_user: bool = Field(default=False, alias="SEED_DEMO_USER")
     demo_email: str = Field(default="demo@kasa.app", alias="DEMO_EMAIL")
     demo_password: str = Field(default="kasademo123", alias="DEMO_PASSWORD")
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        # Managed Postgres (Railway/Render/Heroku/Fly) hands out `postgres://` or `postgresql://`;
+        # the app + Alembic both run on the async psycopg driver, so normalize the scheme once here
+        # (idempotent — leaves an already-qualified `postgresql+psycopg`/`+asyncpg` URL untouched).
+        if value.startswith(("postgresql+", "postgres+")):
+            return value
+        if value.startswith("postgresql://"):
+            return "postgresql+psycopg://" + value[len("postgresql://") :]
+        if value.startswith("postgres://"):
+            return "postgresql+psycopg://" + value[len("postgres://") :]
+        return value
 
     def rpc_urls(self, chain_id: int) -> list[str]:
         field = _RPC_FIELD_BY_CHAIN.get(chain_id)
