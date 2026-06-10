@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api, setAccessToken } from "./client";
 import type { components } from "./client";
 
@@ -138,6 +139,7 @@ export function useFaucet() {
     mutationFn: async (body: S["FaucetRequest"]) =>
       must(await api.POST("/api/v1/demo/faucet", { body, params: idempotency() })),
     onSuccess: () => {
+      toast.success("Faucet sent — it will credit after confirmations.");
       void qc.invalidateQueries({ queryKey: ["balances"] });
       void qc.invalidateQueries({ queryKey: ["deposits"] });
     },
@@ -150,6 +152,7 @@ export function useWithdraw() {
     mutationFn: async (body: S["WithdrawalCreateRequest"]) =>
       must(await api.POST("/api/v1/withdrawals", { body, params: idempotency() })),
     onSuccess: () => {
+      toast.success("Withdrawal submitted.");
       void qc.invalidateQueries({ queryKey: ["balances"] });
       void qc.invalidateQueries({ queryKey: ["transactions"] });
     },
@@ -162,6 +165,7 @@ export function useTransfer() {
     mutationFn: async (body: S["TransferCreateRequest"]) =>
       must(await api.POST("/api/v1/transfers", { body, params: idempotency() })),
     onSuccess: () => {
+      toast.success("Transfer sent.");
       void qc.invalidateQueries({ queryKey: ["balances"] });
       void qc.invalidateQueries({ queryKey: ["transactions"] });
     },
@@ -173,7 +177,10 @@ export function useNftTransfer() {
   return useMutation({
     mutationFn: async (body: S["NftTransferCreateRequest"]) =>
       must(await api.POST("/api/v1/nft-transfers", { body, params: idempotency() })),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["nfts"] }),
+    onSuccess: () => {
+      toast.success("NFT transferred.");
+      void qc.invalidateQueries({ queryKey: ["nfts"] });
+    },
   });
 }
 
@@ -182,7 +189,10 @@ export function useNftWithdrawal() {
   return useMutation({
     mutationFn: async (body: S["NftWithdrawalCreateRequest"]) =>
       must(await api.POST("/api/v1/nft-withdrawals", { body, params: idempotency() })),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["nfts"] }),
+    onSuccess: () => {
+      toast.success("NFT withdrawal submitted.");
+      void qc.invalidateQueries({ queryKey: ["nfts"] });
+    },
   });
 }
 
@@ -191,6 +201,9 @@ export function useMintNft() {
   return useMutation({
     mutationFn: async (body: S["AdminMintNftRequest"]) =>
       must(await api.POST("/api/v1/admin/mint-nft", { body })),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["nfts"] }),
+    onSuccess: () => {
+      toast.success("NFT mint requested.");
+      void qc.invalidateQueries({ queryKey: ["nfts"] });
+    },
   });
 }

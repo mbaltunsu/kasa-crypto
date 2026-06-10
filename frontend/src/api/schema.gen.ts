@@ -418,6 +418,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Max Amount */
+            max_amount?: string | null;
             /** Symbol */
             symbol: string;
             type: components["schemas"]["AssetType"];

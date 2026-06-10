@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field, Input } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
-import { shortChain } from "@/lib/assets";
+import { amountCapError, maxAmountLabel, shortChain } from "@/lib/assets";
 import { useAssets, useBalances, useWithdraw } from "@/api/queries";
 
 export default function WithdrawPage() {
@@ -35,6 +35,8 @@ export default function WithdrawPage() {
     }
     if (base <= 0n) return setErr("Amount must be positive.");
     if (base > BigInt(available)) return setErr("Amount exceeds available balance.");
+    const capErr = amountCapError(selected, base);
+    if (capErr) return setErr(capErr);
     withdraw.mutate({ asset_id: selected.id, to_address: toAddress, amount: base.toString() });
   }
 
@@ -69,6 +71,7 @@ export default function WithdrawPage() {
                 selected ? (
                   <span className="num">
                     available {formatAmount(selected, available)} {selected.symbol}
+                    {maxAmountLabel(selected) ? ` · max ${maxAmountLabel(selected)}` : ""}
                   </span>
                 ) : undefined
               }

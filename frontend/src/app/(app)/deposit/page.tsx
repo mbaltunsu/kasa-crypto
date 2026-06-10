@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Field, Input } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { shortChain } from "@/lib/assets";
+import { amountCapError, maxAmountLabel, shortChain } from "@/lib/assets";
 import { useAssets, useDepositAddresses, useFaucet } from "@/api/queries";
 
 function CopyAddress({ address }: { address: string }) {
@@ -37,18 +37,24 @@ export default function DepositPage() {
   const assets = assetsQ.data ?? [];
   const [assetId, setAssetId] = useState("");
   const [amount, setAmount] = useState("1");
+  const [err, setErr] = useState<string | null>(null);
   const selected = assets.find((a) => a.id === assetId) ?? assets[0];
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    setErr(null);
     if (!selected) return;
-    let base: string;
+    let base: bigint;
     try {
-      base = parseAmount(selected, amount).toString();
+      base = parseAmount(selected, amount);
     } catch {
+      setErr("Invalid amount.");
       return;
     }
-    faucet.mutate({ asset_id: selected.id, amount: base });
+    if (base <= 0n) return setErr("Amount must be positive.");
+    const capErr = amountCapError(selected, base);
+    if (capErr) return setErr(capErr);
+    faucet.mutate({ asset_id: selected.id, amount: base.toString() });
   }
 
   return (
@@ -95,7 +101,16 @@ export default function DepositPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Amount" htmlFor="amount">
+            <Field
+              label="Amount"
+              htmlFor="amount"
+              hint={
+                selected && maxAmountLabel(selected) ? (
+                  <span className="num">max {maxAmountLabel(selected)}</span>
+                ) : undefined
+              }
+              error={err ?? undefined}
+            >
               <Input
                 id="amount"
                 inputMode="decimal"
