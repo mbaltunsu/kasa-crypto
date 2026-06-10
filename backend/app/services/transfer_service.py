@@ -12,7 +12,9 @@ from app.schemas.transfer import TransferCreateResponse
 from app.services import ledger
 from app.services.errors import raise_api_error
 from app.services.idempotency import scoped_idempotency_key
+from app.services.limits import max_amount_base_units
 from app.services.wallet_service import get_asset
+from app.types.amount import format_amount
 
 
 def _normalize_email(email: str) -> str:
@@ -47,6 +49,14 @@ async def create_transfer(
         raise_api_error(HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Cannot transfer to yourself")
 
     asset = await get_asset(session, asset_id)
+    max_amount = max_amount_base_units(asset)
+    if max_amount is not None and amount > max_amount:
+        max_amount_display = f"{format_amount(asset, max_amount)} {asset.symbol}"
+        raise_api_error(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            ErrorCode.VALIDATION_ERROR,
+            f"Amount exceeds the per-transaction limit of {max_amount_display}",
+        )
     # Lock the sender's wallet account before the balance check so concurrent debits cannot both
     # pass and overspend (finding #2).
     await ledger.lock_user_asset(session, user=sender, asset=asset)

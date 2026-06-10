@@ -1,21 +1,34 @@
 from __future__ import annotations
 
 import uuid
-from typing import cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
 
-from kasa_shared.models import Asset as RegistryAsset
-from kasa_shared.models import Erc20Asset, Erc721Asset
 from kasa_shared.registry import list_chains, tokens_of_chain
 
 from app.schemas.registry import AssetResponse, ChainResponse
+from app.services.limits import max_amount_base_units
+
+if TYPE_CHECKING:
+    from kasa_shared.consts import AssetType
+    from kasa_shared.models import Asset as RegistryAsset
+    from kasa_shared.models import Erc20Asset, Erc721Asset
 
 ASSET_NAMESPACE = uuid.UUID("c38a8b6f-7c61-4b83-9353-265a9e859c2f")
+
+
+@dataclass(frozen=True)
+class _RegistryProjectionAsset:
+    chain_id: int
+    symbol: str
+    type: AssetType
+    decimals: int
 
 
 def asset_id_for(chain_id: int, asset: RegistryAsset) -> uuid.UUID:
     address = ""
     if asset.type.value != "native":
-        address = cast(Erc20Asset | Erc721Asset, asset).address
+        address = cast("Erc20Asset | Erc721Asset", asset).address
     key = f"{chain_id}:{asset.type.value}:{asset.symbol.upper()}:{address.lower()}"
     return uuid.uuid5(ASSET_NAMESPACE, key)
 
@@ -39,7 +52,7 @@ def asset_responses(chain_id: int | None = None) -> list[AssetResponse]:
         for asset in tokens_of_chain(current_chain_id):
             contract_address = None
             if asset.type.value != "native":
-                contract_address = cast(Erc20Asset | Erc721Asset, asset).address
+                contract_address = cast("Erc20Asset | Erc721Asset", asset).address
             responses.append(
                 AssetResponse(
                     id=asset_id_for(current_chain_id, asset),
@@ -48,6 +61,14 @@ def asset_responses(chain_id: int | None = None) -> list[AssetResponse]:
                     type=asset.type.value,
                     contract_address=contract_address,
                     decimals=asset.decimals,
+                    max_amount=max_amount_base_units(
+                        _RegistryProjectionAsset(
+                            chain_id=current_chain_id,
+                            symbol=asset.symbol,
+                            type=asset.type,
+                            decimals=asset.decimals,
+                        ),
+                    ),
                 ),
             )
     return responses

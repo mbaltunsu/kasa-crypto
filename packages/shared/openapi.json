@@ -104,6 +104,18 @@
             "title": "Id",
             "type": "string"
           },
+          "max_amount": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9]\\d*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Amount"
+          },
           "symbol": {
             "title": "Symbol",
             "type": "string"

@@ -2,8 +2,11 @@ from typing import Protocol
 
 
 class SupportsAmountMetadata(Protocol):
-    symbol: str
-    decimals: int
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def decimals(self) -> int: ...
 
 
 def parse_amount(asset: SupportsAmountMetadata, human: str) -> int:

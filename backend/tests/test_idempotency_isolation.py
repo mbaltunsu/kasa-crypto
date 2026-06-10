@@ -30,7 +30,7 @@ CHAIN_ID = 11_155_111
 ALICE_ADDR = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 BOB_ADDR = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
 DEST = "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
-ONE_ETH = 1_000_000_000_000_000_000
+HALF_SEPOLIA_ETH_MAX = 500_000_000_000_000
 
 
 async def _account_balance(session: AsyncSession, account_id: UUID) -> int:
@@ -57,25 +57,39 @@ async def test_withdrawal_reusing_a_faucet_key_still_debits_the_user(session: As
     alice = await seed_user(session, email="alice@example.com", hd_index=1)
     await seed_deposit_address(session, user=alice, address=ALICE_ADDR)
 
-    # Fund alice with 2 ETH via the simulation faucet using a client key the attacker will reuse.
-    await request_faucet(session, user=alice, asset_id=asset.id, amount=2 * ONE_ETH, idempotency_key="reuse-me")
-    assert await ledger.available_balance(session, user=alice, asset=asset) == 2 * ONE_ETH
-
-    # Reuse the SAME client key on a withdrawal of 1 ETH.
-    response = await create_withdrawal(
-        session, user=alice, asset_id=asset.id, to_address=DEST, amount=ONE_ETH, idempotency_key="reuse-me",
+    # Fund alice via the simulation faucet using a client key the attacker will reuse.
+    await request_faucet(
+        session,
+        user=alice,
+        asset_id=asset.id,
+        amount=2 * HALF_SEPOLIA_ETH_MAX,
+        idempotency_key="reuse-me",
+    )
+    assert (
+        await ledger.available_balance(session, user=alice, asset=asset)
+        == 2 * HALF_SEPOLIA_ETH_MAX
     )
 
-    # The user is debited 1 ETH (available 2 -> 1) and 1 ETH is held in the reservation account.
-    assert await ledger.available_balance(session, user=alice, asset=asset) == ONE_ETH
+    # Reuse the SAME client key on a withdrawal.
+    response = await create_withdrawal(
+        session,
+        user=alice,
+        asset_id=asset.id,
+        to_address=DEST,
+        amount=HALF_SEPOLIA_ETH_MAX,
+        idempotency_key="reuse-me",
+    )
+
+    # The user is debited and the requested amount is held in the reservation account.
+    assert await ledger.available_balance(session, user=alice, asset=asset) == HALF_SEPOLIA_ETH_MAX
     reserved = await ledger.get_or_create_account(
         session, asset=asset, name=ledger.WITHDRAWALS_RESERVED_ACCOUNT, owner_type="system",
     )
-    assert await _account_balance(session, reserved.id) == ONE_ETH
+    assert await _account_balance(session, reserved.id) == HALF_SEPOLIA_ETH_MAX
     request = (
         await session.execute(select(WithdrawalRequest).where(WithdrawalRequest.id == response.id))
     ).scalar_one()
-    assert int(request.amount) == ONE_ETH
+    assert int(request.amount) == HALF_SEPOLIA_ETH_MAX
 
 
 @pytest.mark.asyncio

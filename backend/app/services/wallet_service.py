@@ -18,7 +18,9 @@ from app.schemas.wallet import BalanceResponse, DepositAddressResponse
 from app.services import ledger
 from app.services.errors import raise_api_error, raise_not_found
 from app.services.idempotency import scoped_idempotency_key
+from app.services.limits import max_amount_base_units
 from app.services.rate_limit import enforce_rate_limit
+from app.types.amount import format_amount
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -107,6 +109,14 @@ async def request_faucet(
             HTTPStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Amount must be positive",
         )
     asset = await get_asset(session, asset_id)
+    max_amount = max_amount_base_units(asset)
+    if max_amount is not None and amount > max_amount:
+        max_amount_display = f"{format_amount(asset, max_amount)} {asset.symbol}"
+        raise_api_error(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            ErrorCode.VALIDATION_ERROR,
+            f"Amount exceeds the per-transaction limit of {max_amount_display}",
+        )
 
     address = (
         await session.execute(select(DepositAddress).where(DepositAddress.user_id == user.id))

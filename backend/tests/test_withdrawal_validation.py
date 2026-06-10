@@ -8,6 +8,9 @@ at request time: reject non-EVM shapes, the zero address, and mixed-case EIP-55 
 
 from __future__ import annotations
 
+from http import HTTPStatus
+from typing import TYPE_CHECKING
+
 import pytest
 
 pytest.importorskip("aiosqlite")
@@ -15,7 +18,6 @@ pytest.importorskip("eth_utils")
 
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import ErrorCode, LedgerEntryType
 from app.models.tables import Asset, User, WithdrawalRequest
@@ -23,15 +25,22 @@ from app.services import ledger
 from app.services.withdrawal_service import create_withdrawal
 from tests.support import seed_asset, seed_user
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
 CHAIN_ID = 11_155_111
 VALID = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"  # canonical EIP-55 (Hardhat #1)
 LOWER = VALID.lower()
 ZERO = "0x" + "0" * 40
 BAD_CHECKSUM = "0x70997970c51812dc3A010C7d01b50e0d17dc79C8"  # one nibble case-flipped from VALID
+SEPOLIA_ETH_MAX = 1_000_000_000_000_000
+DEFAULT_FUNDS = 100
 
 
 async def _fund(session: AsyncSession, user: User, asset: Asset, amount: int) -> None:
-    source = await ledger.get_or_create_account(session, asset=asset, name="src", owner_type="system")
+    source = await ledger.get_or_create_account(
+        session, asset=asset, name="src", owner_type="system",
+    )
     wallet = await ledger.get_user_wallet_account(session, user=user, asset=asset)
     await ledger.post(
         session, transaction_type=LedgerEntryType.DEPOSIT, idempotency_key=f"fund:{user.id}",
@@ -40,10 +49,12 @@ async def _fund(session: AsyncSession, user: User, asset: Asset, amount: int) ->
     )
 
 
-async def _setup(session: AsyncSession) -> tuple[Asset, User]:
-    asset = await seed_asset(session, chain_id=CHAIN_ID, asset_type="native", symbol="ETH", decimals=18)
+async def _setup(session: AsyncSession, *, funds: int = DEFAULT_FUNDS) -> tuple[Asset, User]:
+    asset = await seed_asset(
+        session, chain_id=CHAIN_ID, asset_type="native", symbol="ETH", decimals=18,
+    )
     user = await seed_user(session, email="a@example.com", hd_index=1)
-    await _fund(session, user, asset, 100)
+    await _fund(session, user, asset, funds)
     return asset, user
 
 
@@ -55,15 +66,17 @@ async def test_withdrawal_rejects_invalid_destination(session: AsyncSession, bad
         await create_withdrawal(
             session, user=user, asset_id=asset.id, to_address=bad, amount=10, idempotency_key="k",
         )
-    assert excinfo.value.status_code == 422
+    assert excinfo.value.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     assert excinfo.value.detail["code"] == ErrorCode.VALIDATION_ERROR.value  # type: ignore[index]
     # The user is never debited and no withdrawal row is created for a rejected destination.
-    assert await ledger.available_balance(session, user=user, asset=asset) == 100
+    assert await ledger.available_balance(session, user=user, asset=asset) == DEFAULT_FUNDS
     assert (await session.execute(select(WithdrawalRequest))).first() is None
 
 
 @pytest.mark.asyncio
-async def test_withdrawal_normalizes_lowercase_destination_to_checksum(session: AsyncSession) -> None:
+async def test_withdrawal_normalizes_lowercase_destination_to_checksum(
+    session: AsyncSession,
+) -> None:
     asset, user = await _setup(session)
     response = await create_withdrawal(
         session, user=user, asset_id=asset.id, to_address=LOWER, amount=10, idempotency_key="k",
@@ -84,3 +97,42 @@ async def test_withdrawal_accepts_valid_checksummed_destination(session: AsyncSe
         await session.execute(select(WithdrawalRequest).where(WithdrawalRequest.id == response.id))
     ).scalar_one()
     assert request.to_address == VALID
+
+
+@pytest.mark.asyncio
+async def test_withdrawal_accepts_amount_at_asset_cap(session: AsyncSession) -> None:
+    asset, user = await _setup(session, funds=SEPOLIA_ETH_MAX)
+    response = await create_withdrawal(
+        session,
+        user=user,
+        asset_id=asset.id,
+        to_address=VALID,
+        amount=SEPOLIA_ETH_MAX,
+        idempotency_key="cap-ok",
+    )
+
+    request = (
+        await session.execute(select(WithdrawalRequest).where(WithdrawalRequest.id == response.id))
+    ).scalar_one()
+    assert int(request.amount) == SEPOLIA_ETH_MAX
+
+
+@pytest.mark.asyncio
+async def test_withdrawal_rejects_amount_above_asset_cap(session: AsyncSession) -> None:
+    asset, user = await _setup(session, funds=SEPOLIA_ETH_MAX + 1)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await create_withdrawal(
+            session,
+            user=user,
+            asset_id=asset.id,
+            to_address=VALID,
+            amount=SEPOLIA_ETH_MAX + 1,
+            idempotency_key="cap-too-high",
+        )
+
+    assert excinfo.value.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert excinfo.value.detail["code"] == ErrorCode.VALIDATION_ERROR.value  # type: ignore[index]
+    assert excinfo.value.detail["message"] == (  # type: ignore[index]
+        "Amount exceeds the per-transaction limit of 0.001 ETH"
+    )

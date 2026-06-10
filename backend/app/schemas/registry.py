@@ -3,6 +3,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from app.core.enums import AssetType
+from app.types.amount import UnsignedBaseUnit
 
 
 class ChainResponse(BaseModel):
@@ -19,3 +20,4 @@ class AssetResponse(BaseModel):
     type: AssetType
     contract_address: str | None
     decimals: int
+    max_amount: UnsignedBaseUnit | None = None

@@ -94,7 +94,7 @@ def load_registry() -> Registry:
             by_symbol[symbol_index_key] = asset
 
             if asset.type != AssetType.NATIVE:
-                address_asset = cast(AddressAsset, asset)
+                address_asset = asset
                 address_key = address_asset.address.lower()
                 if address_key == _ZERO_LOOKUP:
                     continue
@@ -129,7 +129,7 @@ def tokens_of_chain(chain_id: int) -> list[Asset]:
 
 def erc20s_of_chain(chain_id: int) -> list[Erc20Asset]:
     return [
-        cast(Erc20Asset, asset)
+        asset
         for asset in get_chain(chain_id).assets
         if asset.type == AssetType.ERC20
     ]
@@ -137,7 +137,7 @@ def erc20s_of_chain(chain_id: int) -> list[Erc20Asset]:
 
 def nfts_of_chain(chain_id: int) -> list[Erc721Asset]:
     return [
-        cast(Erc721Asset, asset)
+        asset
         for asset in get_chain(chain_id).assets
         if asset.type == AssetType.ERC721
     ]
@@ -169,7 +169,7 @@ def get_asset(chain_id: int, key: str) -> Asset:
 def native_asset(chain_id: int) -> NativeAsset:
     for asset in get_chain(chain_id).assets:
         if asset.type == AssetType.NATIVE:
-            return cast(NativeAsset, asset)
+            return asset
     msg = f"chain {chain_id} has no native asset"
     raise KeyError(msg)
 
