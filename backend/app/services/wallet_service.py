@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chain.types import NATIVE_LOG_INDEX
+from app.core.config import get_settings
 from app.core.enums import DepositStatus, ErrorCode, LedgerEntryType
 from app.models.tables import Asset, DepositAddress, OnchainDeposit, User
 from app.schemas.faucet import FaucetResponse
@@ -52,16 +53,21 @@ async def list_deposit_addresses(
     ).scalar_one_or_none()
     if address is None:
         raise_not_found("Deposit address not found")
+    settings = get_settings()
     return [
         DepositAddressResponse(chain_id=chain.chain_id, address=address.address)
         for chain in list_chains()
+        if settings.is_chain_enabled(chain.chain_id)
     ]
 
 
 async def list_balances(session: AsyncSession, *, user: User) -> list[BalanceResponse]:
+    settings = get_settings()
     assets = (await session.execute(select(Asset).order_by(Asset.chain_id, Asset.symbol))).scalars().all()
     responses: list[BalanceResponse] = []
     for asset in assets:
+        if not settings.is_chain_enabled(asset.chain_id):
+            continue
         available, pending = await ledger.balance(session, user=user, asset=asset)
         responses.append(
             BalanceResponse(

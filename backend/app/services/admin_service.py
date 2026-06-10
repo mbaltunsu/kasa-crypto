@@ -10,6 +10,7 @@ from kasa_shared.registry import nfts_of_chain
 from sqlalchemy import case, func, select
 
 from app.chain.client import ChainRpcError
+from app.core.config import get_settings
 from app.core.enums import ErrorCode, NftHoldingStatus, NftMintStatus
 from app.models.tables import (
     Asset,
@@ -102,9 +103,12 @@ async def reserves(
     if hot_wallet_address is not None:
         custody_addresses.append(hot_wallet_address)
 
+    settings = get_settings()
     clients: dict[int, BalanceClient] = {}
     rows: list[ReserveAssetResponse] = []
     for asset in assets:
+        if not settings.is_chain_enabled(asset.chain_id):
+            continue
         liabilities = await _liabilities(session, asset)
         chain_reserves = liabilities
         if balance_factory is not None and asset.type in {"native", "erc20"}:

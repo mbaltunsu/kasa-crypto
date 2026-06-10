@@ -71,6 +71,8 @@ async def gas_balances(
     hot_wallet_address = hot_wallet_account(settings.master_mnemonic).address
     chains: list[GasChainBalance] = []
     for chain in list_chains():
+        if not settings.is_chain_enabled(chain.chain_id):
+            continue
         try:
             client = ChainClient.from_settings(chain.chain_id, settings)
         except (KeyError, ValueError):

@@ -350,6 +350,9 @@ async def run() -> None:
 
     tasks: list[asyncio.Task[None]] = []
     for chain in list_chains():
+        if not settings.is_chain_enabled(chain.chain_id):
+            logger.info("chain %s disabled by config; skipping", chain.chain_id)
+            continue
         try:
             client = ChainClient.from_settings(chain.chain_id, settings)
         except (KeyError, ValueError):

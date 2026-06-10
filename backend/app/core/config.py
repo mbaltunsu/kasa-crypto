@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     demo_email: str = Field(default="demo@kasa.app", alias="DEMO_EMAIL")
     demo_password: str = Field(default="kasademo123", alias="DEMO_PASSWORD")
 
+    # Chains present in the registry but hidden at runtime (comma-separated chain ids). Lets a cloud
+    # deploy drop the local Hardhat chain (31337) — assets/balances/chains/addresses omit it and the
+    # worker skips it — while local dev keeps every chain. Empty = all registry chains active.
+    disabled_chain_ids: str = Field(default="", alias="DISABLED_CHAIN_IDS")
+
     @field_validator("database_url")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:
@@ -73,6 +78,10 @@ class Settings(BaseSettings):
         if value.startswith("postgres://"):
             return "postgresql+psycopg://" + value[len("postgres://") :]
         return value
+
+    def is_chain_enabled(self, chain_id: int) -> bool:
+        disabled = {int(x) for x in self.disabled_chain_ids.split(",") if x.strip()}
+        return chain_id not in disabled
 
     def rpc_urls(self, chain_id: int) -> list[str]:
         field = _RPC_FIELD_BY_CHAIN.get(chain_id)

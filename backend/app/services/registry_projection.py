@@ -6,8 +6,15 @@ from typing import TYPE_CHECKING, cast
 
 from kasa_shared.registry import list_chains, tokens_of_chain
 
+from app.core.config import get_settings
 from app.schemas.registry import AssetResponse, ChainResponse
 from app.services.limits import max_amount_base_units
+
+
+def active_chain_ids() -> list[int]:
+    """Registry chain ids minus any disabled by config (e.g. the local Hardhat chain in cloud)."""
+    settings = get_settings()
+    return [c.chain_id for c in list_chains() if settings.is_chain_enabled(c.chain_id)]
 
 if TYPE_CHECKING:
     from kasa_shared.consts import AssetType
@@ -34,6 +41,7 @@ def asset_id_for(chain_id: int, asset: RegistryAsset) -> uuid.UUID:
 
 
 def chain_responses() -> list[ChainResponse]:
+    settings = get_settings()
     return [
         ChainResponse(
             chain_id=chain.chain_id,
@@ -42,11 +50,14 @@ def chain_responses() -> list[ChainResponse]:
             explorer_tx_url=chain.explorer_tx_url,
         )
         for chain in list_chains()
+        if settings.is_chain_enabled(chain.chain_id)
     ]
 
 
 def asset_responses(chain_id: int | None = None) -> list[AssetResponse]:
-    chains = [chain_id] if chain_id is not None else [chain.chain_id for chain in list_chains()]
+    settings = get_settings()
+    chains = [chain_id] if chain_id is not None else active_chain_ids()
+    chains = [cid for cid in chains if settings.is_chain_enabled(cid)]
     responses: list[AssetResponse] = []
     for current_chain_id in chains:
         for asset in tokens_of_chain(current_chain_id):
