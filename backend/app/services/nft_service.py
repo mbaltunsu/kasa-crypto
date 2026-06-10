@@ -8,9 +8,22 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.addresses import InvalidAddressError, to_checksum_address_strict
-from app.core.enums import ErrorCode, NftHoldingStatus, NftWithdrawalStatus, TransferStatus
-from app.models.tables import NftHolding, NftTransfer, NftWithdrawalRequest, User
+from app.core.enums import (
+    ErrorCode,
+    NftHoldingStatus,
+    NftMintStatus,
+    NftWithdrawalStatus,
+    TransferStatus,
+)
+from app.models.tables import (
+    NftHolding,
+    NftMintRequest,
+    NftTransfer,
+    NftWithdrawalRequest,
+    User,
+)
 from app.schemas.nft import (
+    NftMintResponse,
     NftResponse,
     NftTransferCreateResponse,
     NftWithdrawalCreateResponse,
@@ -28,6 +41,7 @@ if TYPE_CHECKING:
 
     class _RegistryModule(Protocol):
         def explorer_address_url(self, chain_id: int, address: str) -> str: ...
+        def explorer_tx_url(self, chain_id: int, tx_hash: str) -> str: ...
 
 
 def _normalize_email(email: str) -> str:
@@ -37,6 +51,40 @@ def _normalize_email(email: str) -> str:
 def _explorer_address_url(chain_id: int, address: str) -> str:
     registry = cast("_RegistryModule", import_module("kasa_shared.registry"))
     return registry.explorer_address_url(chain_id, address)
+
+
+def _explorer_tx_url(chain_id: int, tx_hash: str) -> str:
+    registry = cast("_RegistryModule", import_module("kasa_shared.registry"))
+    return registry.explorer_tx_url(chain_id, tx_hash)
+
+
+async def list_mints(session: AsyncSession, *, user: User) -> list[NftMintResponse]:
+    requests = (
+        (
+            await session.execute(
+                select(NftMintRequest)
+                .where(NftMintRequest.user_id == user.id)
+                .order_by(NftMintRequest.created_at.desc(), NftMintRequest.id.desc()),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [_mint_response(request) for request in requests]
+
+
+def _mint_response(request: NftMintRequest) -> NftMintResponse:
+    explorer_url = _explorer_tx_url(request.chain_id, request.tx_hash) if request.tx_hash else None
+    return NftMintResponse(
+        id=request.id,
+        chain_id=request.chain_id,
+        contract=request.contract,
+        token_id=request.token_id,
+        status=NftMintStatus(request.status),
+        tx_hash=request.tx_hash,
+        explorer_url=explorer_url,
+        created_at=request.created_at,
+    )
 
 
 async def list_holdings(session: AsyncSession, *, user: User) -> list[NftResponse]:

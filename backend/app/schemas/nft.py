@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -12,6 +13,20 @@ class NftResponse(BaseModel):
     token_id: str
     image: str
     explorer_url: str
+
+
+class NftMintResponse(BaseModel):
+    """A mint request in the user's collectible history. `tx_hash`/`explorer_url` are only set for
+    real on-chain mints (offline-stub mints are simulated and carry no usable explorer link)."""
+
+    id: UUID
+    chain_id: int
+    contract: str
+    token_id: str | None = None
+    status: NftMintStatus
+    tx_hash: str | None = None
+    explorer_url: str | None = None
+    created_at: datetime
 
 
 class NftTransferCreateRequest(BaseModel):

@@ -7,13 +7,19 @@ from app.api.dependencies import IdempotencyKey, get_current_user
 from app.db import get_db
 from app.models.tables import User
 from app.schemas.nft import (
+    NftMintResponse,
     NftResponse,
     NftTransferCreateRequest,
     NftTransferCreateResponse,
     NftWithdrawalCreateRequest,
     NftWithdrawalCreateResponse,
 )
-from app.services.nft_service import list_holdings, request_withdrawal, transfer_nft
+from app.services.nft_service import (
+    list_holdings,
+    list_mints,
+    request_withdrawal,
+    transfer_nft,
+)
 
 router = APIRouter(tags=["nfts"])
 
@@ -24,6 +30,15 @@ async def nfts(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[NftResponse]:
     return await list_holdings(session, user=user)
+
+
+@router.get("/nft-mints")
+async def nft_mints(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> list[NftMintResponse]:
+    """The current user's NFT mint history (all statuses), for the History view."""
+    return await list_mints(session, user=user)
 
 
 @router.post(

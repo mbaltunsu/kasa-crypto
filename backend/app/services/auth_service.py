@@ -42,6 +42,7 @@ async def register_user(
     email: str,
     password: str,
     settings: Settings | None = None,
+    role: UserRole = UserRole.USER,
 ) -> User:
     resolved_settings = settings or get_settings()
     normalized_email = _normalize_email(email)
@@ -61,7 +62,7 @@ async def register_user(
     user = User(
         email=normalized_email,
         password_hash=hash_password(password),
-        role=UserRole.USER.value,
+        role=role.value,
         hd_index=hd_index,
     )
     session.add(user)
@@ -102,6 +103,45 @@ async def ensure_demo_user(session: AsyncSession, settings: Settings) -> bool:
         settings=settings,
     )
     return True
+
+
+# The demo roster seeded alongside the prefilled login: the demo account is the admin (so the
+# Mint/Admin flows work out of the box) plus a couple of regular users, giving the login page
+# one-click account switching and the transfer/mint pickers real recipients. All share
+# DEMO_PASSWORD for the demo.
+_DEMO_EXTRA_USERS: tuple[str, ...] = ("alice@kasa.app", "bob@kasa.app")
+
+
+async def ensure_demo_users(session: AsyncSession, settings: Settings) -> int:
+    """Idempotently seed the demo roster and keep seeded roles in sync.
+
+    Creates the prefilled demo login as an ADMIN plus a couple of regular USER accounts, and
+    promotes a pre-existing demo login to admin if it predates this seeding. Returns the number
+    of users created this call.
+    """
+    roster: list[tuple[str, UserRole]] = [
+        (settings.demo_email, UserRole.ADMIN),
+        *((email, UserRole.USER) for email in _DEMO_EXTRA_USERS),
+    ]
+    created = 0
+    for email, role in roster:
+        normalized_email = _normalize_email(email)
+        existing = (
+            await session.execute(select(User).where(User.email == normalized_email))
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.role != role.value:
+                existing.role = role.value
+            continue
+        await register_user(
+            session,
+            email=email,
+            password=settings.demo_password,
+            settings=settings,
+            role=role,
+        )
+        created += 1
+    return created
 
 
 async def authenticate_user(session: AsyncSession, *, email: str, password: str) -> User:

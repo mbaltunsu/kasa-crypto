@@ -16,12 +16,15 @@ export function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={htmlFor} className="block text-xs font-medium text-muted">
+      <label
+        htmlFor={htmlFor}
+        className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted"
+      >
         {label}
       </label>
       {children}
       {error ? (
-        <p role="alert" className="text-xs text-neg">
+        <p role="alert" className="text-xs font-medium text-neg">
           {error}
         </p>
       ) : hint ? (
@@ -31,11 +34,13 @@ export function Field({
   );
 }
 
+/** Inputs sit *into* the card (darker than the surface) so forms read as carved-in wells. */
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       className={cn(
-        "w-full rounded-lg border border-border bg-surface2 px-3 py-2.5 text-sm text-ink placeholder:text-muted/60",
+        "w-full rounded-xl border border-border/80 bg-bg/60 px-3.5 py-2.5 text-sm text-ink",
+        "placeholder:text-muted/50 transition-colors duration-200 hover:border-border focus:border-gold/50",
         className,
       )}
       {...props}

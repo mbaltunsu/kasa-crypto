@@ -48,6 +48,7 @@ contracts/coverage.json
 
 # ───────────────────────── OS / editor ─────────────────────────
 .DS_Store
+.shots/
 *.log
 .idea/
 .vscode/*

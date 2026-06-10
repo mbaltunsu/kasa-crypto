@@ -22,6 +22,15 @@ export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: async () => must(await api.GET("/api/v1/me")) });
 }
 
+/** Every user's id + email, for the recipient / account-switch pickers (demo convenience). */
+export function useUsers() {
+  return useQuery({
+    queryKey: ["users"],
+    queryFn: async () => must(await api.GET("/api/v1/users")),
+    staleTime: 60_000,
+  });
+}
+
 export function useChains() {
   return useQuery({
     queryKey: ["chains"],
@@ -75,6 +84,9 @@ export function useDeposits() {
   return useQuery({
     queryKey: ["deposits"],
     queryFn: async () => must(await api.GET("/api/v1/deposits", { params: { query: {} } })),
+    // Poll so deposits advance seen → confirmed → credited (and the confirmation count ticks up)
+    // live without a manual refresh; DepositNotifier turns the credited transition into a toast.
+    refetchInterval: 8_000,
   });
 }
 
@@ -87,11 +99,45 @@ export function useWithdrawals() {
 }
 
 export function useNfts() {
-  return useQuery({ queryKey: ["nfts"], queryFn: async () => must(await api.GET("/api/v1/nfts")) });
+  return useQuery({
+    queryKey: ["nfts"],
+    queryFn: async () => must(await api.GET("/api/v1/nfts")),
+    // Poll so a freshly minted collectible appears for the recipient without a manual refresh.
+    refetchInterval: 8_000,
+  });
 }
 
 export function useMyNfts() {
   return useNfts();
+}
+
+/** The current user's NFT mint history (all statuses), for the History view. */
+export function useNftMints() {
+  return useQuery({
+    queryKey: ["nft-mints"],
+    queryFn: async () => must(await api.GET("/api/v1/nft-mints")),
+    refetchInterval: 8_000,
+  });
+}
+
+const TERMINAL_MINT_STATUS = new Set(["confirmed", "failed"]);
+
+/** Poll a single mint request so the admin UI can show live progress; stops once terminal. */
+export function useMintStatus(requestId: string | null) {
+  return useQuery({
+    queryKey: ["mint-status", requestId],
+    enabled: requestId !== null,
+    queryFn: async () =>
+      must(
+        await api.GET("/api/v1/admin/mint-nft/{request_id}", {
+          params: { path: { request_id: requestId! } },
+        }),
+      ),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && !TERMINAL_MINT_STATUS.has(status) ? 2_500 : false;
+    },
+  });
 }
 
 export function useAdminReserves() {
@@ -204,6 +250,7 @@ export function useMintNft() {
     onSuccess: () => {
       toast.success("NFT mint requested.");
       void qc.invalidateQueries({ queryKey: ["nfts"] });
+      void qc.invalidateQueries({ queryKey: ["nft-mints"] });
     },
   });
 }

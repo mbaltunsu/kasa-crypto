@@ -15,13 +15,14 @@ from app.api.v1 import (
     registry,
     transactions,
     transfers,
+    users,
     wallet,
     withdrawals,
 )
 from app.core.config import get_settings
 from app.core.errors import ErrorResponse, register_error_handlers
 from app.db import get_session_factory
-from app.services.auth_service import ensure_demo_user
+from app.services.auth_service import ensure_demo_users
 
 logger = logging.getLogger("kasa.api")
 
@@ -32,10 +33,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.seed_demo_user:
         try:
             async with get_session_factory()() as session:
-                created = await ensure_demo_user(session, settings)
+                created = await ensure_demo_users(session, settings)
                 await session.commit()
             if created:
-                logger.info("seeded demo login %s", settings.demo_email)
+                logger.info("seeded %d demo user(s) (admin: %s)", created, settings.demo_email)
         except Exception:  # noqa: BLE001 - demo seeding must never block API startup
             logger.warning("demo user seed skipped (is the DB migrated?)", exc_info=True)
     yield
@@ -50,6 +51,7 @@ def build_api_v1_router() -> APIRouter:
 
     router.include_router(auth.router)
     router.include_router(me.router)
+    router.include_router(users.router)
     router.include_router(registry.router)
     router.include_router(wallet.router)
     router.include_router(deposits.router)

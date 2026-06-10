@@ -185,6 +185,19 @@ async def mint_nft_stub(
             status=NftHoldingStatus.HELD.value,
         ),
     )
+    # Also record a (confirmed) mint request so the user's mint history is uniform across the
+    # offline-stub and real on-chain paths. tx_hash stays None — the stub tx is not real, so the
+    # history view must not offer a (dead) explorer link for it.
+    session.add(
+        NftMintRequest(
+            user_id=user.id,
+            chain_id=chain_id,
+            contract=contract,
+            to_address=ZERO_ADDRESS,
+            status=NftMintStatus.CONFIRMED.value,
+            token_id=token_id,
+        ),
+    )
     await session.flush()
     return AdminMintNftResponse(
         status=NftMintStatus.CONFIRMED,
@@ -243,3 +256,18 @@ async def mint_nft(  # noqa: PLR0913
     session.add(request)
     await session.flush()
     return AdminMintNftResponse(request_id=request.id, status=NftMintStatus.REQUESTED)
+
+
+async def get_mint_status(session: AsyncSession, *, request_id: UUID) -> AdminMintNftResponse:
+    """Look up a mint request so the admin UI can poll requested → … → confirmed/failed."""
+    request = (
+        await session.execute(select(NftMintRequest).where(NftMintRequest.id == request_id))
+    ).scalar_one_or_none()
+    if request is None:
+        raise_api_error(HTTPStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "Mint request not found")
+    return AdminMintNftResponse(
+        request_id=request.id,
+        status=NftMintStatus(request.status),
+        tx_hash=request.tx_hash,
+        token_id=request.token_id,
+    )

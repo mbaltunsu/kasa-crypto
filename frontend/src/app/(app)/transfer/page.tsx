@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field, Input } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
+import { UserSelect } from "@/components/ui/UserSelect";
 import { amountCapError, maxAmountLabel, shortChain } from "@/lib/assets";
-import { useAssets, useBalances, useTransfer } from "@/api/queries";
+import { useAssets, useBalances, useMe, useTransfer } from "@/api/queries";
 
 export default function TransferPage() {
   const assets = useAssets().data ?? [];
   const balances = useBalances().data ?? [];
+  const me = useMe();
   const transfer = useTransfer();
   const [assetId, setAssetId] = useState("");
   const [toEmail, setToEmail] = useState("");
@@ -20,7 +22,8 @@ export default function TransferPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const selected = assets.find((a) => a.id === assetId) ?? assets[0];
-  const available = balances.find((b) => b.asset_id === selected?.id)?.available ?? "0";
+  const availOf = (id: string) => balances.find((b) => b.asset_id === id)?.available ?? "0";
+  const available = availOf(selected?.id ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,28 +46,38 @@ export default function TransferPage() {
   return (
     <>
       <TopBar title="Transfer" />
-      <main className="max-w-lg space-y-6 p-5 sm:p-7">
+      <main className="max-w-lg animate-fade-up space-y-6 p-5 sm:p-7">
         <Card className="p-6">
           <p className="mb-4 text-xs text-muted">
             Instant internal transfer to another Kasa user by email — off-chain, no gas.
           </p>
           <form className="space-y-4" onSubmit={submit}>
             <Field label="Asset" htmlFor="asset">
-              <Select id="asset" value={selected?.id ?? ""} onChange={(e) => setAssetId(e.target.value)}>
+              <Select
+                id="asset"
+                value={selected?.id ?? ""}
+                onChange={(e) => {
+                  setAssetId(e.target.value);
+                  setErr(null);
+                }}
+              >
                 {assets.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.symbol} · {shortChain(a.chain_id)}
+                    {a.symbol} · {shortChain(a.chain_id)} — {formatAmount(a, availOf(a.id))} avail
                   </option>
                 ))}
               </Select>
             </Field>
-            <Field label="Recipient email" htmlFor="to">
-              <Input
+            <Field label="Recipient" htmlFor="to">
+              <UserSelect
                 id="to"
-                type="email"
-                placeholder="friend@example.com"
                 value={toEmail}
-                onChange={(e) => setToEmail(e.target.value)}
+                excludeEmail={me.data?.email}
+                placeholder="Select a recipient…"
+                onChange={(email) => {
+                  setToEmail(email);
+                  setErr(null);
+                }}
               />
             </Field>
             <Field
@@ -85,14 +98,19 @@ export default function TransferPage() {
                 inputMode="decimal"
                 placeholder="0.0"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setErr(null);
+                }}
               />
             </Field>
             <Button type="submit" className="w-full" disabled={transfer.isPending || !selected}>
               {transfer.isPending ? "Sending…" : "Send transfer"}
             </Button>
           </form>
-          {transfer.isSuccess ? <p className="mt-3 text-xs text-pos">Transfer complete.</p> : null}
+          {transfer.isSuccess ? (
+            <p className="mt-3 text-xs font-medium text-pos">Transfer complete.</p>
+          ) : null}
         </Card>
       </main>
     </>

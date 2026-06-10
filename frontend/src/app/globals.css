@@ -6,14 +6,37 @@
   color-scheme: dark;
 }
 
-html,
-body {
-  background: #0f172a;
+html {
+  background: #0b0e13;
 }
 
+/* "Signal" canvas — deep cool graphite with an engineered dot-grid etched at the edge of
+   perception. Depth comes from hairline borders + the neutral shadow scale, never halos. */
 body {
+  background-color: #0b0e13;
+  background-image: radial-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(43 196 149 / 0.25);
+  color: #f6f9fd;
+}
+
+/* Subtle scrollbars that match the shell. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #222b39;
+  border-radius: 8px;
+  border: 2px solid #0b0e13;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Tabular figures so balances/addresses don't shift between rows. */
@@ -22,11 +45,19 @@ body {
   font-feature-settings: "tnum" 1;
 }
 
-/* Gold focus ring on every interactive element. */
+/* Brand text accent (logo wordmark) — calm mint ramp, near-solid. */
+.text-gradient-gold {
+  background: linear-gradient(135deg, #57d9af 0%, #1fa87c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Mint focus ring on every interactive element. Outline (not box-shadow) so it follows
+   each element's own border-radius and never fights elevation shadows. */
 *:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.5);
-  border-radius: 6px;
+  outline: 2px solid rgb(43 196 149 / 0.6);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

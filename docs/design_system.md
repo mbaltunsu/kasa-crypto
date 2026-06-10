@@ -1,54 +1,70 @@
-# Design system — Exchange Dark
+# Kasa design system — "Signal" (v5)
 
-**Owner: Claude.** The visual source of truth for the frontend. Direction: a real crypto-exchange terminal —
-dark, data-forward, trustworthy. Tuned for **eye comfort**: text is softened off pure white and accents are
-desaturated so nothing vibrates against the dark canvas, while every pairing still clears WCAG AA.
+**Owner: Claude.** The committed source of truth for the frontend's visual language. Masters:
+`frontend/tailwind.config.ts` (tokens) + `frontend/src/app/globals.css` (canvas, focus, `.num`).
+Token **names** are stable across redesigns — only values change, so components never churn when
+the palette evolves. The brand-accent slot is still *named* `gold` for class stability; in Signal
+it resolves to **electric mint**.
 
-## Color tokens (v2 — eye-comfort tuned)
+## Concept
 
-| Token | Hex | Role | Contrast on `bg` |
-|---|---|---|---|
-| `bg` | `#0F172A` | app canvas (midnight slate, not pure black) | — |
-| `surface` | `#1B2336` | cards, panels | — |
-| `surface2` | `#232B3F` | raised chips, hover, inputs | — |
-| `border` | `#2D3A50` | dividers, card edges (softened) | — |
-| `ink` | `#DCE3EC` | primary text (softened — avoids white halation) | ~12:1 AAA |
-| `ink-hi` | `#F1F5F9` | reserved emphasis (hero balance only) | ~14:1 AAA |
-| `muted` | `#94A3B8` | secondary text, labels | ~6:1 AA |
-| `gold` | `#F59E0B` | brand / trust / primary CTA | ~7.4:1 |
-| `pos` | `#34D399` | positive / up / credited (calm emerald, **not** lime) | ~8.5:1 |
-| `neg` | `#F87171` | negative / down / failed (softened red) | ~6.5:1 |
-| `tech` | `#A78BFA` | secondary accent (ERC-20 chip, avatars; used sparingly) | ~6:1 |
+A precision instrument for moving value: deep graphite canvas with a faint engineered dot-grid,
+hairline borders, soft neutral depth (never colored halos), one electric mint signal color, and
+monospace data. DeFi/AI feel — calm surfaces, confident accent, terminal-grade numbers.
 
-**Why v2:** the first pass used `#F8FAFC` text (near-pure white → halation/eye strain on dark) and `#22C55E`
-(saturated lime-green). v2 softens primary text to `#DCE3EC`, swaps green to a calmer emerald `#34D399`,
-gentles red to `#F87171`, and softens borders/violet — reducing total "saturated-accent vibration" while
-keeping AA. Brightest white (`ink-hi`) is reserved for the single hero number, not body text.
+## Type
 
-Semantic mapping (Tailwind): `text-ink` body · `text-muted` secondary · `text-pos`/`text-neg` for
-up/down · `bg-gold text-bg` primary buttons · status pills use `bg-{pos|neg|gold}/10 ring-{...}/30`.
+- **Sora** (`--font-inter` slot) — display + UI. Geometric grotesque; weights 400–800. Hero sizes
+  via `text-display` / `text-display-sm` (clamp-based, responsive).
+- **Spline Sans Mono** (`--font-mono` slot) — all data: balances, amounts, addresses, hashes.
+  Always with `.num` (tabular figures).
 
-## Typography
+## Color tokens (v5 — Signal)
 
-- **Inter** for all UI text. **JetBrains Mono** for every number, address, and tx hash, always with
-  **tabular figures** (`font-variant-numeric: tabular-nums`) so values don't shift between rows.
-- Scale: 12 / 14 / 16(base) / 18 / 24 / 32. Body line-height 1.5–1.6. Weights: 400 body, 500 labels,
-  600–700 headings/numbers.
+| Token | Hex | Role |
+|---|---|---|
+| `bg` | `#0B0E13` | canvas (with a 2.5%-alpha dot grid etched in `globals.css`) |
+| `surface` / `surface2` | `#11151D` / `#181E29` | cards / wells, chips, segmented controls |
+| `border` | `#222B39` | hairlines — usually at `/60`–`/80`; full opacity on hover |
+| `ink` / `ink-hi` / `muted` | `#DFE6F0` / `#F6F9FD` / `#8C97AB` | text scale |
+| `gold` (brand slot) | `#2BC495` | accent: links, active nav, focus, CTAs (`gold-hi` `#57D9AF`, `gold-deep` `#178F6B`) — deliberately dimmed so large CTAs don't fatigue eyes |
+| `pos` | `#2BC495` | success/credit — intentionally the brand mint (green = up = brand) |
+| `neg` | `#FF5C7A` | errors, debits, destructive |
+| `warn` | `#F5B544` | **in-flight/pending** (StatusPill, pending dots, gas LOW) — never the brand color |
+| `tech` / `aqua` | `#8B9DFF` / `#5CC8FF` | NFT accents / info |
 
-## Components & rules
+## Depth & effects
 
-- Radii: `lg` (8px) controls, `xl`/`2xl` (12–16px) cards. Shadows minimal; depth via `surface` layering +
-  1px `border`, not heavy drop shadows.
-- Icons: **Lucide** (SVG), consistent 1.8–2px stroke. **No emoji.** Icon-only buttons get `aria-label`.
-- Color is never the only signal: every status has an icon/label + the color (e.g. amber pill + spinner for
-  `broadcast`, green dot + "credited").
-- Focus: visible 3px gold focus ring (`:focus-visible`) on all interactive elements.
-- Motion: 150–300ms ease transitions; respect `prefers-reduced-motion`; spinners only for in-flight states.
-- Numbers: thousands separators; show `available` prominently and `pending` in `gold` as a secondary line;
-  only `available` is spendable.
-- Responsive: mobile-first; sidebar collapses under `md`; verified at 375 / 768 / 1024 / 1440. `min-h-dvh`.
+- Elevation: `shadow-card` (resting) → `shadow-pop` (hover/raised) — neutral, low-opacity, large
+  blur + a 1px inset top hairline. Legacy `shadow-glow-*` names resolve to quiet neutrals.
+- `bg-gradient-gold`: near-flat mint ramp for primary CTAs / the logo tile.
+- `bg-gradient-hero`: 5%-alpha mint radial for hero sections — a hint, not an aura.
+- Motion: `animate-fade-up` page entrances, `animate-shimmer` skeletons (2.2s), press
+  `active:scale-[0.97]`; everything gated by `prefers-reduced-motion`.
 
-## Reference
+## Brand mark
 
-Static mockup: `frontend/mockups/dashboard.html` (self-contained; open in a browser). These tokens map 1:1
-into the frontend Tailwind config during the frontend build.
+`frontend/src/components/ui/KasaLogo.tsx` — a geometric K carved into a mint squircle with a
+signal dot at the K's mouth (value flowing into the vault). Same artwork is the favicon at
+`frontend/src/app/icon.svg` (Next App Router auto-serves it). Used in the sidebar/drawer header
+and the login hero.
+
+## Network identity
+
+`frontend/src/components/ui/NetworkIcon.tsx` (logos in `frontend/public/networks/`, sourced from
+`frontend/assets/`):
+
+- `NetworkIcon chainId` → chain mark (Sepolia→Ethereum, Fuji→Avalanche; unknown chains, e.g. the
+  local Hardhat node, get a neutral dot).
+- `AssetIcon symbol chainId` → native coins (ETH/AVAX) get the real network mark; tokens get a
+  lettered chip **plus a small chain badge** so the network is always visible.
+
+Used on: dashboard balance cards (plus an oversized low-alpha watermark per card), TopBar chain
+chips, deposit address rows, history tables, admin gas table, NFT cards, and the login hero.
+
+## Semantics rules
+
+- Mint = brand/identity/success. Amber (`warn`) = anything still moving. Red = terminal-bad.
+  Pending must **never** render in the brand color.
+- Amounts: `MoneyText` (mono + tabular + optional sign), colored `text-pos`/`text-neg` by direction.
+- Focus: 2px mint outline (`globals.css`) — follows each element's own radius.

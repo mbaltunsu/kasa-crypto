@@ -1,38 +1,37 @@
 "use client";
 
-import { useState } from "react";
-import { cn } from "@/lib/cn";
+import { MobileNav } from "@/components/layout/MobileNav";
+import { NetworkIcon } from "@/components/ui/NetworkIcon";
 
 const CHAINS = [
-  { id: 11155111, label: "Sepolia", dot: "bg-tech" },
-  { id: 43113, label: "Fuji", dot: "bg-neg" },
+  { id: 11155111, label: "Sepolia" },
+  { id: 43113, label: "Fuji" },
 ];
 
 export function TopBar({ title }: { title: string }) {
-  const [active, setActive] = useState(CHAINS[0]!.id);
-
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-border bg-bg/80 px-5 backdrop-blur sm:px-7">
-      <h1 className="text-lg font-semibold text-ink-hi">{title}</h1>
+    <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-border/60 bg-bg/70 px-5 backdrop-blur-xl sm:px-7">
+      <MobileNav />
+      <h1 className="truncate text-lg font-semibold tracking-tight text-ink-hi">{title}</h1>
       <div className="ml-auto flex items-center gap-2.5">
-        <div className="flex items-center gap-1 rounded-lg bg-surface p-1 text-xs ring-1 ring-border">
+        {/* Display-only: both testnets are always watched; there's no single "active" chain to pick. */}
+        <div
+          className="hidden items-center gap-1 rounded-xl bg-surface/70 p-1 text-xs ring-1 ring-border/70 sm:flex"
+          title="Both testnets are always watched — display only"
+          aria-label="Supported networks (read-only)"
+        >
           {CHAINS.map((c) => (
-            <button
+            <span
               key={c.id}
-              type="button"
-              onClick={() => setActive(c.id)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-2.5 py-1 transition-colors",
-                active === c.id ? "bg-surface2 font-medium text-ink" : "text-muted hover:text-ink",
-              )}
+              className="flex cursor-default items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium text-muted"
             >
-              <span className={cn("h-1.5 w-1.5 rounded-full", c.dot)} />
+              <NetworkIcon chainId={c.id} className="h-3.5 w-3.5" />
               {c.label}
-            </button>
+            </span>
           ))}
         </div>
-        <span className="flex items-center gap-1.5 rounded-lg bg-surface px-2.5 py-1.5 text-xs text-muted ring-1 ring-border">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-pos" />
+        <span className="flex items-center gap-2 rounded-xl bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-pos/90 ring-1 ring-border/70">
+          <span className="h-1.5 w-1.5 rounded-full bg-pos" aria-hidden />
           watcher live
         </span>
       </div>

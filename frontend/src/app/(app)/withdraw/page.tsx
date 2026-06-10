@@ -20,7 +20,8 @@ export default function WithdrawPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const selected = assets.find((a) => a.id === assetId) ?? assets[0];
-  const available = balances.find((b) => b.asset_id === selected?.id)?.available ?? "0";
+  const availOf = (id: string) => balances.find((b) => b.asset_id === id)?.available ?? "0";
+  const available = availOf(selected?.id ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,14 +44,21 @@ export default function WithdrawPage() {
   return (
     <>
       <TopBar title="Withdraw" />
-      <main className="max-w-lg space-y-6 p-5 sm:p-7">
+      <main className="max-w-lg animate-fade-up space-y-6 p-5 sm:p-7">
         <Card className="p-6">
           <form className="space-y-4" onSubmit={submit}>
             <Field label="Asset" htmlFor="asset">
-              <Select id="asset" value={selected?.id ?? ""} onChange={(e) => setAssetId(e.target.value)}>
+              <Select
+                id="asset"
+                value={selected?.id ?? ""}
+                onChange={(e) => {
+                  setAssetId(e.target.value);
+                  setErr(null);
+                }}
+              >
                 {assets.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.symbol} · {shortChain(a.chain_id)}
+                    {a.symbol} · {shortChain(a.chain_id)} — {formatAmount(a, availOf(a.id))} avail
                   </option>
                 ))}
               </Select>
@@ -60,7 +68,10 @@ export default function WithdrawPage() {
                 id="to"
                 placeholder="0x…"
                 value={toAddress}
-                onChange={(e) => setToAddress(e.target.value)}
+                onChange={(e) => {
+                  setToAddress(e.target.value);
+                  setErr(null);
+                }}
                 className="font-mono"
               />
             </Field>
@@ -82,7 +93,10 @@ export default function WithdrawPage() {
                 inputMode="decimal"
                 placeholder="0.0"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setErr(null);
+                }}
               />
             </Field>
             <Button type="submit" className="w-full" disabled={withdraw.isPending || !selected}>
@@ -90,7 +104,7 @@ export default function WithdrawPage() {
             </Button>
           </form>
           {withdraw.isSuccess ? (
-            <p className="mt-3 text-xs text-pos">
+            <p className="mt-3 text-xs font-medium text-pos">
               Withdrawal {withdraw.data.id.slice(0, 8)}… · status {withdraw.data.status}
             </p>
           ) : null}

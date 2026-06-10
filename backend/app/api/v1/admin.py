@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from kasa_shared.registry import list_chains, native_asset
@@ -132,3 +133,13 @@ async def mint_nft(
     )
     await session.commit()
     return response
+
+
+@router.get("/mint-nft/{request_id}")
+async def mint_status(
+    request_id: UUID,
+    _admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> AdminMintNftResponse:
+    """Poll a mint request's status so the admin UI can show live mint progress."""
+    return await admin_service.get_mint_status(session, request_id=request_id)
