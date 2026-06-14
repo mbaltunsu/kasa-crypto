@@ -10,6 +10,30 @@ html {
   background: #0b0e13;
 }
 
+/* Root-font scaling for large displays. Tailwind sizing is rem-based, so bumping the
+   root font-size grows the whole UI (text, spacing, max-w containers) proportionally
+   instead of leaving content marooned in the center of a big canvas. */
+@media (min-width: 1536px) {
+  html {
+    font-size: 17px;
+  }
+}
+@media (min-width: 1920px) {
+  html {
+    font-size: 18px;
+  }
+}
+@media (min-width: 2400px) {
+  html {
+    font-size: 20px;
+  }
+}
+@media (min-width: 3200px) {
+  html {
+    font-size: 22px;
+  }
+}
+
 /* "Signal" canvas — deep cool graphite with an engineered dot-grid etched at the edge of
    perception. Depth comes from hairline borders + the neutral shadow scale, never halos. */
 body {
